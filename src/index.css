@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: #ffffff;
+  --color-card: #f5f5f7;
+  --color-text: #1d1d1f;
+  --color-accent: #6c63ff;
+  --color-border: #e6e6eb;
+}
+
+.dark {
+  --color-bg: #000000;
+  --color-card: #1c1c1e;
+  --color-text: #f5f5f7;
+  --color-accent: #6c63ff;
+  --color-border: #2b2b30;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  font-weight: 400;
+}
+
+button,
+a.pill-button,
+[role="button"] {
+  font-weight: 500;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.font-medium,
+strong,
+b {
+  font-weight: 500;
+}
+
+.pill-button {
+  border-radius: 980px;
+  border: 1px solid var(--color-border);
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.pill-button:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.pill-button:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+/* Icon buttons: full pill shape + subtle hover scale */
+.icon-pill {
+  border-radius: 980px;
+  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.icon-pill:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.ar-badge-pulse {
+  animation: arPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes arPulse {
+  0%,
+  100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.78;
+  }
+}
+
+.admin-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #2b2b30;
+  background: #000000;
+  color: #f5f5f7;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 400;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.admin-input:focus {
+  border-color: #6c63ff;
+}
+
+/* Shimmer skeleton for product grid */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-text) 8%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.dark .skeleton-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-text) 12%, transparent),
+    transparent
+  );
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.voice-wave {
+  transform-origin: center bottom;
+  animation: voiceWave 0.8s ease-in-out infinite;
+}
+
+@keyframes voiceWave {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scaleY(1.2);
+    opacity: 1;
+  }
+}
