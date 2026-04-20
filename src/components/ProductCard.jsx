@@ -23,7 +23,7 @@ const ProductCard = ({ product }) => {
         >
           <Heart size={14} className={wished ? "fill-accent text-accent" : "text-text/80"} />
         </button>
-        {product.isArEnabled && (
+        {product.snapLensId && (
           <span className="ar-badge-pulse absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1 text-xs text-white">
             <Sparkles size={12} /> AR Badge
           </span>

@@ -3,14 +3,12 @@ import { useParams } from "react-router-dom";
 import ARModal from "../components/ARModal.jsx";
 import ProductImage from "../components/ProductImage.jsx";
 import { useApp } from "../context/AppContext.jsx";
-import { getProductLens } from "../utils/lensManager.js";
 
 const ProductPage = () => {
   const { id } = useParams();
   const { products, api, addToCart } = useApp();
   const [product, setProduct] = useState(() => products.find((item) => item._id === id) || null);
   const [showAR, setShowAR] = useState(false);
-  const [productLensId, setProductLensId] = useState("");
 
   useEffect(() => {
     if (product) return;
@@ -20,17 +18,12 @@ const ProductPage = () => {
       .catch(() => setProduct(null));
   }, [api, id, product]);
 
-  useEffect(() => {
-    const productId = product?._id || id;
-    setProductLensId(getProductLens(productId) || "");
-  }, [id, product?._id]);
-
   if (!product) {
     return <div className="mx-auto max-w-7xl px-8 py-8 text-text">Loading product details...</div>;
   }
 
-  const lensId = productLensId || getProductLens(product._id);
-  const canUseVirtualTryOn = Boolean(product.isArEnabled && lensId);
+  const lensId = product.snapLensId?.trim() || "";
+  const canUseVirtualTryOn = Boolean(lensId);
 
   return (
     <main className="mx-auto max-w-7xl px-8 py-8">

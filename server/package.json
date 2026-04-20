@@ -9,6 +9,7 @@
     "start": "node index.js",
     "seed": "node seed.js",
     "seed:reset": "node -e \"process.env.SEED_RESET='true'; import('./seed.js')\"",
+    "migrate:lens-ids": "node scripts/migrateSnapLensIds.js",
     "build": "npm install"
   },
   "dependencies": {

@@ -1,17 +1,21 @@
 import Product from "../models/Product.js";
 import User from "../models/User.js";
+import { normalizeSnapLensId } from "../utils/snapLens.js";
 
-const buildProductPayload = (body) => ({
-  name: body.name,
-  price: Number(body.price),
-  description: body.description,
-  category: body.category,
-  image: body.image,
-  stockCount: Math.max(0, Number(body.stockCount ?? 0)),
-  snapLensUrl: body.snapLensUrl || "",
-  isArEnabled:
-    typeof body.isArEnabled === "boolean" ? body.isArEnabled : Boolean(body.snapLensUrl)
-});
+const buildProductPayload = (body) => {
+  const snapLensId = normalizeSnapLensId(body.snapLensId || "");
+
+  return {
+    name: body.name,
+    price: Number(body.price),
+    description: body.description,
+    category: body.category,
+    image: body.image,
+    stockCount: Math.max(0, Number(body.stockCount ?? 0)),
+    snapLensId,
+    isArEnabled: Boolean(snapLensId)
+  };
+};
 
 export const createProduct = async (req, res, next) => {
   try {

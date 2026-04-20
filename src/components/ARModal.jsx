@@ -1,7 +1,6 @@
 import { createMediaStreamSource, bootstrapCameraKit, Transform2D } from "@snap/camera-kit";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getActiveLens } from "../utils/lensManager.js";
+import { useEffect, useRef, useState } from "react";
 
 const ARModal = ({ open, lensId, onClose }) => {
   const canvasRef = useRef(null);
@@ -10,7 +9,8 @@ const ARModal = ({ open, lensId, onClose }) => {
   const [status, setStatus] = useState("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [retryNonce, setRetryNonce] = useState(0);
-  const resolvedLensId = useMemo(() => lensId || getActiveLens(), [lensId]);
+  const resolvedLensId = lensId?.trim() || "";
+  const lensGroupId = import.meta.env.VITE_SNAP_LENS_GROUP_ID;
 
   useEffect(() => {
     if (!open || !resolvedLensId || !canvasRef.current) return;
@@ -81,6 +81,11 @@ const ARModal = ({ open, lensId, onClose }) => {
           setStatus("error");
           setErrorMessage(
             "This lens is not accessible to the current Camera Kit app. Add the lens to the configured Lens Group, save changes in Lens Scheduler, and make sure the API token belongs to the same Camera Kit organization."
+          );
+        } else if (String(error?.message || "").toLowerCase().includes("lens not found")) {
+          setStatus("error");
+          setErrorMessage(
+            `Lens ID ${resolvedLensId} is saved in the product, but Snap Camera Kit cannot find it inside Lens Group ${lensGroupId}. Add/publish this exact lens to that Lens Group in Snap Lens Manager, then try again.`
           );
         } else {
           setStatus("error");

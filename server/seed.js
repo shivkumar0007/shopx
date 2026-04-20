@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
 import Product from "./models/Product.js";
+import { normalizeSnapLensId } from "./utils/snapLens.js";
 
 dotenv.config();
 
@@ -12,7 +13,7 @@ const products = [
     category: "Fashion",
     image: "https://dummyimage.com/600x400/000/fff&text=AR+Sunglasses",
     stockCount: 14,
-    snapLensUrl: "https://www.snapchat.com/unlock/?type=SNAPCODE&uuid=abcd1111"
+    snapLensId: "abcd1111"
   },
   {
     name: "Virtual Try-On Lipstick Kit",
@@ -21,7 +22,7 @@ const products = [
     category: "Beauty",
     image: "https://dummyimage.com/600x400/900/fff&text=AR+Lipstick",
     stockCount: 3,
-    snapLensUrl: "https://www.snapchat.com/unlock/?type=SNAPCODE&uuid=abcd2222"
+    snapLensId: "abcd2222"
   },
   {
     name: "Running Shoes Pro",
@@ -30,7 +31,7 @@ const products = [
     category: "Footwear",
     image: "https://dummyimage.com/600x400/222/fff&text=Shoes",
     stockCount: 0,
-    snapLensUrl: ""
+    snapLensId: ""
   },
   {
     name: "Noise-Canceling Headphones",
@@ -39,7 +40,7 @@ const products = [
     category: "Electronics",
     image: "https://dummyimage.com/600x400/555/fff&text=Headphones",
     stockCount: 8,
-    snapLensUrl: ""
+    snapLensId: ""
   },
   {
     name: "Minimal Leather Backpack",
@@ -48,7 +49,7 @@ const products = [
     category: "Accessories",
     image: "https://dummyimage.com/600x400/444/fff&text=Backpack",
     stockCount: 4,
-    snapLensUrl: ""
+    snapLensId: ""
   }
 ];
 
@@ -65,7 +66,14 @@ const seedData = async () => {
     const operations = products.map((product) => ({
       updateOne: {
         filter: { name: product.name },
-        update: { $set: product },
+        update: {
+          $set: {
+            ...product,
+            snapLensId: normalizeSnapLensId(product.snapLensId),
+            isArEnabled: Boolean(normalizeSnapLensId(product.snapLensId))
+          },
+          $unset: { snapLensUrl: 1 }
+        },
         upsert: true
       }
     }));

@@ -8,15 +8,15 @@ const productSchema = new mongoose.Schema(
     category: { type: String, required: true, trim: true },
     image: { type: String, required: true },
     stockCount: { type: Number, required: true, min: 0, default: 0 },
-    snapLensUrl: { type: String, default: "" },
+    snapLensId: { type: String, default: "", trim: true },
     isArEnabled: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
 
 productSchema.pre("save", function setArFlag(next) {
-  if (this.isModified("snapLensUrl") && !this.isModified("isArEnabled")) {
-    this.isArEnabled = Boolean(this.snapLensUrl);
+  if (this.isModified("snapLensId") && !this.isModified("isArEnabled")) {
+    this.isArEnabled = Boolean(this.snapLensId);
   }
   next();
 });

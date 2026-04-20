@@ -1,15 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { Camera, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext.jsx";
-import {
-  assignLensToProduct,
-  deleteLens,
-  getAllLenses,
-  getLensAssignedProductIds,
-  removeProductLensAssignments,
-  saveLens
-} from "../utils/lensManager.js";
 
 const initialForm = {
   name: "",
@@ -18,35 +10,20 @@ const initialForm = {
   category: "",
   description: "",
   image: "",
-  snapLensUrl: "",
-  isArEnabled: false
+  snapLensId: ""
 };
 
-const initialLensForm = {
-  id: "",
-  name: "",
-  lensId: "",
-  status: "active",
-  productId: ""
+const getApiErrorMessage = (error, fallbackMessage) => {
+  const message = error?.response?.data?.message || error?.message;
+  return message || fallbackMessage;
 };
-
-const truncateLensId = (value = "") =>
-  value.length > 18 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
 
 const Admin = () => {
-  const { api, products, fetchProducts, user } = useApp();
+  const { api, products, fetchProducts, user, setUser } = useApp();
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [editingForm, setEditingForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
-  const [lenses, setLenses] = useState([]);
-  const [lensForm, setLensForm] = useState(initialLensForm);
-  const [lensFormOpen, setLensFormOpen] = useState(false);
-  const [savingLens, setSavingLens] = useState(false);
-
-  useEffect(() => {
-    setLenses(getAllLenses());
-  }, []);
 
   const sortedProducts = useMemo(
     () => [...products].sort((a, b) => a.name.localeCompare(b.name)),
@@ -58,20 +35,39 @@ const Admin = () => {
     setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   };
 
+  const buildArPayload = (payload) => ({
+    ...payload,
+    snapLensId: payload.snapLensId?.trim() || "",
+    isArEnabled: Boolean(payload.snapLensId?.trim())
+  });
+
+  const handleAdminRequestError = (error, fallbackMessage) => {
+    const status = error?.response?.status;
+    const message = getApiErrorMessage(error, fallbackMessage);
+
+    if (status === 401 || status === 403) {
+      setUser(null);
+      toast.error("Session expired or admin access missing. Please login again.");
+      return;
+    }
+
+    toast.error(message);
+  };
+
   const handleCreateProduct = async (event) => {
     event.preventDefault();
     if (!user?.token) return;
     setSaving(true);
     try {
-      await api.post("/products", {
+      await api.post("/products", buildArPayload({
         ...form,
         price: Number(form.price)
-      });
+      }));
       setForm(initialForm);
       await fetchProducts();
       toast.success("Product added");
-    } catch {
-      toast.error("Unable to add product.");
+    } catch (error) {
+      handleAdminRequestError(error, "Unable to add product.");
     } finally {
       setSaving(false);
     }
@@ -86,8 +82,7 @@ const Admin = () => {
       category: product.category,
       description: product.description,
       image: product.image,
-      snapLensUrl: product.snapLensUrl || "",
-      isArEnabled: Boolean(product.isArEnabled)
+      snapLensId: product.snapLensId || ""
     });
   };
 
@@ -95,16 +90,16 @@ const Admin = () => {
     if (!editingId) return;
     setSaving(true);
     try {
-      await api.put(`/products/${editingId}`, {
+      await api.put(`/products/${editingId}`, buildArPayload({
         ...editingForm,
         price: Number(editingForm.price),
         stockCount: Number(editingForm.stockCount)
-      });
+      }));
       setEditingId(null);
       await fetchProducts();
       toast.success("Product updated");
-    } catch {
-      toast.error("Unable to update product.");
+    } catch (error) {
+      handleAdminRequestError(error, "Unable to update product.");
     } finally {
       setSaving(false);
     }
@@ -117,81 +112,10 @@ const Admin = () => {
       await api.delete(`/products/${productId}`);
       await fetchProducts();
       toast.success("Product deleted");
-    } catch {
-      toast.error("Unable to delete product.");
+    } catch (error) {
+      handleAdminRequestError(error, "Unable to delete product.");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleLensChange = (event) => {
-    const { name, value } = event.target;
-    setLensForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const toggleLensStatus = () => {
-    setLensForm((prev) => ({
-      ...prev,
-      status: prev.status === "active" ? "inactive" : "active"
-    }));
-  };
-
-  const resetLensForm = () => {
-    setLensForm(initialLensForm);
-    setLensFormOpen(false);
-  };
-
-  const handleSaveLens = (event) => {
-    event.preventDefault();
-    setSavingLens(true);
-
-    try {
-      const nextLenses = saveLens(lensForm);
-      removeProductLensAssignments(lensForm.lensId);
-      if (lensForm.productId) {
-        assignLensToProduct(lensForm.productId, lensForm.lensId.trim());
-      }
-      setLenses(nextLenses);
-      toast.success(lensForm.id ? "Lens updated" : "Lens saved");
-      resetLensForm();
-    } catch {
-      toast.error("Unable to save lens.");
-    } finally {
-      setSavingLens(false);
-    }
-  };
-
-  const handleEditLens = (lens) => {
-    const assignedProductIds = getLensAssignedProductIds(lens.lensId);
-    setLensForm({
-      id: lens.id,
-      name: lens.name,
-      lensId: lens.lensId,
-      status: lens.status,
-      productId: assignedProductIds[0] || ""
-    });
-    setLensFormOpen(true);
-  };
-
-  const handleDeleteLens = (lensId) => {
-    if (!confirm("Delete this lens?")) return;
-
-    try {
-      const lensToDelete = lenses.find((entry) => entry.id === lensId);
-      if (lensToDelete) {
-        removeProductLensAssignments(lensToDelete.lensId);
-      }
-
-      const nextLenses = deleteLens(lensId);
-      setLenses(nextLenses);
-
-      if (lensForm.id === lensId) {
-        resetLensForm();
-      }
-
-      toast.success("Lens deleted");
-    } catch {
-      toast.error("Unable to delete lens.");
     }
   };
 
@@ -200,7 +124,9 @@ const Admin = () => {
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-8">
         <div className="rounded-2xl border border-[#2b2b30] bg-[#1c1c1e] p-8">
           <h1 className="mb-2 text-3xl font-medium tracking-tight text-[#f5f5f7]">Admin Dashboard</h1>
-          <p className="text-sm font-normal text-[#f5f5f7]/70">Manage products and AR configuration.</p>
+          <p className="text-sm font-normal text-[#f5f5f7]/70">
+            Manage products and save project-specific Snap Lens IDs in MongoDB.
+          </p>
         </div>
 
         <form
@@ -237,23 +163,13 @@ const Admin = () => {
           />
           <input name="image" value={form.image} onChange={handleChange} className="admin-input" placeholder="Image URL" required />
           <input
-            name="snapLensUrl"
-            value={form.snapLensUrl}
+            name="snapLensId"
+            value={form.snapLensId}
             onChange={handleChange}
             className="admin-input md:col-span-2"
-            placeholder="Snap Lens URL (optional)"
-            title="Paste the Snapchat Lens Web URL here"
+            placeholder="Snap Lens ID"
+            title="Paste the Snap Camera Kit Lens ID for this product"
           />
-          <label className="inline-flex items-center gap-2 text-sm font-normal text-[#f5f5f7] md:col-span-2">
-            <input
-              type="checkbox"
-              name="isArEnabled"
-              checked={form.isArEnabled}
-              onChange={handleChange}
-              className="h-4 w-4 accent-[#6c63ff]"
-            />
-            Enable AR manually
-          </label>
           <textarea
             name="description"
             value={form.description}
@@ -280,6 +196,7 @@ const Admin = () => {
                 <th className="px-3 py-3 font-medium">Stock</th>
                 <th className="px-3 py-3 font-medium">Image</th>
                 <th className="px-3 py-3 font-medium">Description</th>
+                <th className="px-3 py-3 font-medium">Lens ID</th>
                 <th className="px-3 py-3 font-medium">AR</th>
                 <th className="px-3 py-3 font-medium">Actions</th>
               </tr>
@@ -374,12 +291,18 @@ const Admin = () => {
                       {isEditing ? (
                         <input
                           className="admin-input"
-                          placeholder="Snap Lens URL"
-                          title="Paste the Snapchat Lens Web URL here"
-                          value={editingForm.snapLensUrl}
-                          onChange={(event) => setEditingForm((prev) => ({ ...prev, snapLensUrl: event.target.value }))}
+                          placeholder="Snap Lens ID"
+                          value={editingForm.snapLensId}
+                          onChange={(event) => setEditingForm((prev) => ({ ...prev, snapLensId: event.target.value }))}
                         />
-                      ) : product.isArEnabled ? (
+                      ) : product.snapLensId ? (
+                        <span className="max-w-[180px] truncate text-[#f5f5f7]/70">{product.snapLensId}</span>
+                      ) : (
+                        <span className="text-[#f5f5f7]/60">Not assigned</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {product.snapLensId ? (
                         <span className="rounded-full bg-accent/25 px-2.5 py-1 text-xs text-white">Enabled</span>
                       ) : (
                         <span className="text-[#f5f5f7]/60">Disabled</span>
@@ -389,17 +312,6 @@ const Admin = () => {
                       <div className="flex items-center gap-2">
                         {isEditing ? (
                           <>
-                            <label className="inline-flex items-center gap-2 rounded-full border border-[#2b2b30] px-3 py-2 text-xs text-[#f5f5f7]">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(editingForm.isArEnabled)}
-                                onChange={(event) =>
-                                  setEditingForm((prev) => ({ ...prev, isArEnabled: event.target.checked }))
-                                }
-                                className="h-3.5 w-3.5 accent-[#6c63ff]"
-                              />
-                              AR
-                            </label>
                             <button onClick={saveEdit} className="pill-button bg-accent text-white">
                               <Save size={14} strokeWidth={1.5} />
                             </button>
@@ -424,158 +336,6 @@ const Admin = () => {
               })}
             </tbody>
           </table>
-        </section>
-
-        <section className="rounded-2xl border border-[#2b2b30] bg-[#1c1c1e] p-8">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#000000] text-[#f5f5f7]">
-                <Camera size={18} strokeWidth={1.6} />
-              </span>
-              <div>
-                <h2 className="text-2xl font-medium text-[#f5f5f7]">AR Lens Manager</h2>
-                <p className="text-sm font-normal text-[#f5f5f7]/70">
-                  Manage Snap lenses used for virtual try-on experiences.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (lensFormOpen) {
-                  resetLensForm();
-                } else {
-                  setLensForm(initialLensForm);
-                  setLensFormOpen(true);
-                }
-              }}
-              className="pill-button inline-flex items-center gap-2 bg-accent text-white"
-            >
-              <Plus size={15} strokeWidth={1.5} /> Add New Lens
-            </button>
-          </div>
-
-          {lensFormOpen && (
-            <form
-              onSubmit={handleSaveLens}
-              className="mb-6 grid gap-4 rounded-2xl border border-[#2b2b30] bg-[#000000] p-6 md:grid-cols-2"
-            >
-              <input
-                name="name"
-                value={lensForm.name}
-                onChange={handleLensChange}
-                className="admin-input"
-                placeholder="Lens Name"
-                required
-              />
-              <input
-                name="lensId"
-                value={lensForm.lensId}
-                onChange={handleLensChange}
-                className="admin-input"
-                placeholder="Lens ID"
-                required
-              />
-              <select
-                name="productId"
-                value={lensForm.productId}
-                onChange={handleLensChange}
-                className="admin-input"
-              >
-                <option value="">Assign to Product</option>
-                {sortedProducts.map((product) => (
-                  <option key={product._id} value={product._id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-              <div className="md:col-span-2 flex flex-wrap items-center gap-3 text-sm text-[#f5f5f7]">
-                <span>Status</span>
-                <button
-                  type="button"
-                  onClick={toggleLensStatus}
-                  className={`pill-button ${
-                    lensForm.status === "active" ? "bg-accent text-white" : "bg-[#1c1c1e] text-[#f5f5f7]"
-                  }`}
-                >
-                  {lensForm.status === "active" ? "Active" : "Inactive"}
-                </button>
-              </div>
-              <div className="md:col-span-2 flex flex-wrap gap-2">
-                <button
-                  type="submit"
-                  disabled={savingLens}
-                  className="pill-button inline-flex items-center gap-2 bg-accent text-white"
-                >
-                  <Save size={14} strokeWidth={1.5} /> {lensForm.id ? "Update Lens" : "Save Lens"}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetLensForm}
-                  className="pill-button inline-flex items-center gap-2 bg-[#000000] text-[#f5f5f7]"
-                >
-                  <X size={14} strokeWidth={1.5} /> Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
-          {lenses.length === 0 ? (
-            <div className="rounded-2xl border border-[#2b2b30] bg-[#000000] p-6 text-sm font-normal text-[#f5f5f7]/70">
-              No lenses added yet. Add your first lens above.
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {lenses.map((lens) => (
-                <article key={lens.id} className="rounded-2xl border border-[#2b2b30] bg-[#000000] p-5">
-                  <div className="mb-4 flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-medium text-[#f5f5f7]">{lens.name}</h3>
-                      <p className="mt-1 text-sm text-[#f5f5f7]/60">{truncateLensId(lens.lensId)}</p>
-                      <p className="mt-2 text-sm text-[#f5f5f7]/60">
-                        Assigned to:{" "}
-                        {(() => {
-                          const assignedProductIds = getLensAssignedProductIds(lens.lensId);
-                          const assignedProducts = sortedProducts.filter((product) =>
-                            assignedProductIds.includes(product._id)
-                          );
-
-                          return assignedProducts.length > 0
-                            ? assignedProducts.map((product) => product.name).join(", ")
-                            : "No product assigned";
-                        })()}
-                      </p>
-                    </div>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs ${
-                        lens.status === "active"
-                          ? "bg-accent/25 text-white"
-                          : "bg-[#1c1c1e] text-[#f5f5f7]/70"
-                      }`}
-                    >
-                      {lens.status === "active" ? "Active" : "Inactive"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleEditLens(lens)}
-                      className="pill-button inline-flex items-center gap-2 bg-[#1c1c1e] text-[#f5f5f7]"
-                    >
-                      <Pencil size={14} strokeWidth={1.5} /> Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteLens(lens.id)}
-                      className="pill-button inline-flex items-center gap-2 bg-[#1c1c1e] text-[#f5f5f7]"
-                    >
-                      <Trash2 size={14} strokeWidth={1.5} /> Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
         </section>
       </section>
     </main>
