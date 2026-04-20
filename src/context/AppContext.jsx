@@ -202,7 +202,7 @@ export const AppProvider = ({ children }) => {
     setUser({
       _id: "demo-user-id",
       name: "Demo User",
-      email: "demo@nextgen.ai",
+      email: "demo@shopx.ai",
       token: "demo-token",
       role: "admin",
       preferences: ["Fashion", "Beauty", "Accessories"]

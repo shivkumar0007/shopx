@@ -1,13 +1,14 @@
 {
   "name": "ai-ecommerce-backend",
   "version": "1.0.0",
-  "description": "Production-ready backend for AI-powered e-commerce platform",
+  "description": "Production-ready backend for the Shopx e-commerce platform",
   "type": "module",
   "main": "index.js",
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js",
     "seed": "node seed.js",
+    "seed:reset": "node -e \"process.env.SEED_RESET='true'; import('./seed.js')\"",
     "build": "npm install"
   },
   "dependencies": {

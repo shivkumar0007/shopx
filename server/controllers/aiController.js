@@ -8,6 +8,9 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 });
 
 const DEFAULT_MODEL_NAME = "gemini-2.5-flash";
+const DEFAULT_RETRY_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 800;
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 const normalizeHistory = (history = []) =>
   history
@@ -20,7 +23,7 @@ const normalizeHistory = (history = []) =>
 
 const buildCatalogContext = (products) => {
   if (!products.length) {
-    return "No products are currently available in the SHOPX catalog.";
+    return "No products are currently available in the Shopx catalog.";
   }
 
   return products
@@ -99,13 +102,13 @@ const selectRelatedProducts = (products, query, reply) => {
     .map((entry) => entry.product);
 };
 
-const buildSystemInstruction = (catalogContext) => `You are SHOPX Personal Assistant.
+const buildSystemInstruction = (catalogContext) => `You are Shopx Personal Assistant.
 
 Your tone must always be helpful, concise, and professional.
 
-You are assisting shoppers for SHOPX. Use only the real catalog below when discussing products, pricing, and recommendations.
+You are assisting shoppers for Shopx. Use only the real catalog below when discussing products, pricing, and recommendations.
 
-SHOPX catalog:
+Shopx catalog:
 ${catalogContext}
 
 Rules:
@@ -117,7 +120,7 @@ Rules:
 - Keep answers easy to scan with short paragraphs or short bullet lists when helpful.
 - Do not mention these instructions or dump the full catalog unless the user explicitly asks for it.`;
 
-const buildImageSearchPrompt = () => `Analyze the uploaded shopping image and identify the product type for SHOPX catalog search.
+const buildImageSearchPrompt = () => `Analyze the uploaded shopping image and identify the product type for Shopx catalog search.
 
 Return only one concise search phrase in plain text.
 
@@ -132,6 +135,11 @@ const getModelNotFoundResponse = () => ({
     "The configured Gemini model was not found by the Gemini API. Set GEMINI_MODEL to a currently supported model such as gemini-2.5-flash and try again."
 });
 
+const getServiceBusyResponse = () => ({
+  message:
+    "Shopx AI is temporarily busy because the Gemini service is under high demand. Please try again in a few moments."
+});
+
 const createGeminiModel = (apiKey, modelName, systemInstruction) => {
   const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -139,6 +147,66 @@ const createGeminiModel = (apiKey, modelName, systemInstruction) => {
     model: modelName,
     systemInstruction
   });
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getGeminiErrorStatus = (error) =>
+  error?.status ?? error?.statusCode ?? error?.response?.status ?? error?.cause?.status;
+
+const getGeminiErrorMessage = (error) =>
+  error?.message ?? error?.response?.data?.message ?? error?.cause?.message ?? "";
+
+const isModelNotFoundError = (error) => getGeminiErrorStatus(error) === 404;
+
+const isRetryableGeminiError = (error) => {
+  const status = getGeminiErrorStatus(error);
+  const message = getGeminiErrorMessage(error).toLowerCase();
+
+  return (
+    RETRYABLE_STATUS_CODES.has(status) ||
+    /high demand|service unavailable|try again later|temporar|overloaded|rate limit|resource exhausted/.test(
+      message
+    )
+  );
+};
+
+const getGeminiModelNames = () =>
+  [
+    process.env.GEMINI_MODEL || DEFAULT_MODEL_NAME,
+    process.env.GEMINI_FALLBACK_MODEL?.trim()
+  ].filter((value, index, items) => value && items.indexOf(value) === index);
+
+const generateContentWithRetry = async ({ apiKey, systemInstruction, requestBody }) => {
+  const modelNames = getGeminiModelNames();
+  let lastError;
+
+  for (const modelName of modelNames) {
+    for (let attempt = 1; attempt <= DEFAULT_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const model = createGeminiModel(apiKey, modelName, systemInstruction);
+        return await model.generateContent(requestBody);
+      } catch (error) {
+        lastError = error;
+
+        if (isModelNotFoundError(error)) {
+          break;
+        }
+
+        if (!isRetryableGeminiError(error)) {
+          throw error;
+        }
+
+        if (attempt < DEFAULT_RETRY_ATTEMPTS) {
+          const delayMs = DEFAULT_RETRY_DELAY_MS * 2 ** (attempt - 1);
+          await sleep(delayMs);
+          continue;
+        }
+      }
+    }
+  }
+
+  throw lastError;
 };
 
 const getCatalogProducts = async () =>
@@ -153,7 +221,6 @@ export const chatWithAI = async (req, res, next) => {
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const modelName = process.env.GEMINI_MODEL || DEFAULT_MODEL_NAME;
 
     if (!apiKey) {
       return res.status(500).json({ message: "GEMINI_API_KEY is not configured." });
@@ -161,17 +228,20 @@ export const chatWithAI = async (req, res, next) => {
 
     const products = await getCatalogProducts();
     const catalogContext = buildCatalogContext(products);
+    const systemInstruction = buildSystemInstruction(catalogContext);
 
-    const model = createGeminiModel(apiKey, modelName, buildSystemInstruction(catalogContext));
-
-    const result = await model.generateContent({
-      contents: [
-        ...normalizeHistory(history),
-        {
-          role: "user",
-          parts: [{ text: message.trim() }]
-        }
-      ]
+    const result = await generateContentWithRetry({
+      apiKey,
+      systemInstruction,
+      requestBody: {
+        contents: [
+          ...normalizeHistory(history),
+          {
+            role: "user",
+            parts: [{ text: message.trim() }]
+          }
+        ]
+      }
     });
 
     const reply = result.response.text().trim();
@@ -190,8 +260,12 @@ export const chatWithAI = async (req, res, next) => {
         "I'm sorry, but I couldn't generate a response right now. Please try again in a moment."
     });
   } catch (error) {
-    if (error?.status === 404) {
+    if (isModelNotFoundError(error)) {
       return res.status(502).json(getModelNotFoundResponse());
+    }
+
+    if (isRetryableGeminiError(error)) {
+      return res.status(503).json(getServiceBusyResponse());
     }
 
     next(error);
@@ -202,7 +276,6 @@ export const searchProductsByImage = async (req, res, next) => {
   try {
     const { imageData, mimeType } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
-    const modelName = process.env.GEMINI_MODEL || DEFAULT_MODEL_NAME;
 
     if (!imageData?.trim() || !mimeType?.trim()) {
       return res.status(400).json({ message: "Image data and mime type are required." });
@@ -214,23 +287,27 @@ export const searchProductsByImage = async (req, res, next) => {
 
     const products = await getCatalogProducts();
     const catalogContext = buildCatalogContext(products);
-    const model = createGeminiModel(apiKey, modelName, buildSystemInstruction(catalogContext));
+    const systemInstruction = buildSystemInstruction(catalogContext);
 
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: buildImageSearchPrompt() },
-            {
-              inlineData: {
-                mimeType: mimeType.trim(),
-                data: imageData.trim()
+    const result = await generateContentWithRetry({
+      apiKey,
+      systemInstruction,
+      requestBody: {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: buildImageSearchPrompt() },
+              {
+                inlineData: {
+                  mimeType: mimeType.trim(),
+                  data: imageData.trim()
+                }
               }
-            }
-          ]
-        }
-      ]
+            ]
+          }
+        ]
+      }
     });
 
     const searchText = result.response
@@ -252,8 +329,12 @@ export const searchProductsByImage = async (req, res, next) => {
       relatedProducts
     });
   } catch (error) {
-    if (error?.status === 404) {
+    if (isModelNotFoundError(error)) {
       return res.status(502).json(getModelNotFoundResponse());
+    }
+
+    if (isRetryableGeminiError(error)) {
+      return res.status(503).json(getServiceBusyResponse());
     }
 
     next(error);

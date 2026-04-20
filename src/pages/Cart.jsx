@@ -39,7 +39,7 @@ const Cart = () => {
         amount: orderData.amount,
         currency: orderData.currency,
         order_id: orderData.razorpay_order_id,
-        name: "NextGen Store",
+        name: "Shopx Store",
         description: "AI-powered cart checkout",
         prefill: {
           name: user.name,

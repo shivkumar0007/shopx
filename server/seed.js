@@ -52,12 +52,38 @@ const products = [
   }
 ];
 
+const shouldResetCollection = process.env.SEED_RESET === "true";
+
 const seedData = async () => {
   try {
     await connectDB();
-    await Product.deleteMany();
-    const inserted = await Product.insertMany(products);
-    console.log(`Seeded ${inserted.length} products successfully`);
+
+    if (shouldResetCollection) {
+      await Product.deleteMany({});
+    }
+
+    const operations = products.map((product) => ({
+      updateOne: {
+        filter: { name: product.name },
+        update: { $set: product },
+        upsert: true
+      }
+    }));
+
+    const result = await Product.bulkWrite(operations);
+    const totalAffected =
+      result.upsertedCount + result.modifiedCount + (shouldResetCollection ? result.insertedCount || 0 : 0);
+
+    console.log(
+      shouldResetCollection
+        ? `Shopx seed reset completed. Upserted ${result.upsertedCount} and modified ${result.modifiedCount} products.`
+        : `Shopx seed completed safely. Upserted ${result.upsertedCount} and modified ${result.modifiedCount} products.`
+    );
+
+    if (totalAffected === 0) {
+      console.log("Seed data already exists and is up to date.");
+    }
+
     process.exit(0);
   } catch (error) {
     console.error(`Seeding failed: ${error.message}`);

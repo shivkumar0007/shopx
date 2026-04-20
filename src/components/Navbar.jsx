@@ -243,7 +243,7 @@ const Navbar = () => {
     <header className="sticky top-0 z-30 border-b border-border bg-bg/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-8 py-5">
         <Link to="/" className="text-xl font-medium tracking-tight text-text">
-          NextGen
+          Shopx
         </Link>
 
         <div ref={searchContainerRef} className="relative hidden flex-1 items-center justify-center md:flex">

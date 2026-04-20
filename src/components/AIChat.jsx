@@ -6,7 +6,7 @@ import { API_BASE_URL } from "../config/api.js";
 import ProductImage from "./ProductImage.jsx";
 
 const initialAssistantMessage =
-  "Welcome to SHOPX. I'm your personal shopping assistant. Ask for product suggestions, budget-friendly picks, or category-specific recommendations.";
+  "Welcome to Shopx. I'm your personal shopping assistant. Ask for product suggestions, budget-friendly picks, or category-specific recommendations.";
 
 const renderInlineFormatting = (text, keyPrefix, role) =>
   text.split(/(\*\*.*?\*\*)/g).filter(Boolean).map((segment, index) => {
@@ -119,7 +119,7 @@ const AIChat = () => {
           products: [],
           text:
             error?.response?.data?.message ||
-            "I'm having trouble reaching the SHOPX assistant right now. Please try again in a moment."
+            "I'm having trouble reaching the Shopx assistant right now. Please try again in a moment."
         }
       ]);
     } finally {
@@ -146,7 +146,7 @@ const AIChat = () => {
                 </div>
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-800 dark:text-white/95">
-                    SHOPX Personal Assistant
+                    Shopx Personal Assistant
                   </p>
                   <p className="mt-1 max-w-[15rem] text-xs leading-5 text-slate-500 dark:text-white/60">
                     Live catalog guidance with tailored product suggestions and pricing.
