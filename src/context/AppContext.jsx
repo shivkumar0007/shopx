@@ -2,7 +2,7 @@ import axios from "axios";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "https://shopx-mmye.onrender.com";
 
 const api = axios.create({
   baseURL: API_BASE_URL
