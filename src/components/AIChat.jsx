@@ -2,9 +2,8 @@ import axios from "axios";
 import { MessageCircle, SendHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { API_BASE_URL } from "../config/api.js";
 import ProductImage from "./ProductImage.jsx";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 const initialAssistantMessage =
   "Welcome to SHOPX. I'm your personal shopping assistant. Ask for product suggestions, budget-friendly picks, or category-specific recommendations.";

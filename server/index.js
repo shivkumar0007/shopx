@@ -13,10 +13,27 @@ dotenv.config();
 connectDB();
 
 const app = express();
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:4173",
+  process.env.CLIENT_URL,
+  ...(process.env.ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) || [])
+].filter(Boolean);
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      const isAllowedOrigin =
+        allowedOrigins.includes(origin) || origin.endsWith(".vercel.app");
+
+      if (isAllowedOrigin) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true
   })
 );
