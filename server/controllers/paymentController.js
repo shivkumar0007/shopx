@@ -4,6 +4,7 @@ dotenv.config();
 import crypto from "crypto";
 import Razorpay from "razorpay";
 import Order from "../models/Order.js";
+import Product from "../models/Product.js"; // ✅ Product import karo
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -60,17 +61,31 @@ export const verifyPayment = async (req, res, next) => {
 
     const isValid = expectedSignature === signature;
 
-    await Order.findOneAndUpdate(
+    // ✅ Order find karo aur status update karo
+    const order = await Order.findOneAndUpdate(
       { razorpayOrderId: orderId },
       {
         status: isValid ? "paid" : "failed",
         razorpayPaymentId: paymentId,
         razorpaySignature: signature
-      }
+      },
+      { new: true } // updated order return karo
     );
 
     if (!isValid) {
       return res.status(400).json({ success: false, message: "Invalid signature" });
+    }
+
+    // ✅ Payment valid hai toh har item ka stock kam karo
+    if (order?.items?.length > 0) {
+      const stockUpdates = order.items.map((item) =>
+        Product.findByIdAndUpdate(
+          item.product,
+          { $inc: { stockCount: -item.quantity } },
+          { new: true }
+        )
+      );
+      await Promise.all(stockUpdates);
     }
 
     return res.json({ success: true, message: "Payment verified successfully" });
