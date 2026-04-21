@@ -15,61 +15,91 @@ const Cart = () => {
       return;
     }
     if (cartItems.length === 0) return;
+
     if (!window.Razorpay) {
-      toast.error("Razorpay SDK missing. Add checkout script in index.html.");
+      toast.error("Razorpay SDK not loaded. Please refresh the page.");
+      return;
+    }
+
+    // ✅ Key validation guard
+    const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+    if (!razorpayKey) {
+      toast.error("Payment configuration error. Please contact support.");
       return;
     }
 
     try {
       setIsProcessing(true);
       const headers = { Authorization: `Bearer ${user.token}` };
+      
       const items = cartItems.map((item) => ({
         product: item._id,
         quantity: item.quantity,
         price: item.price
       }));
+
       const { data: orderData } = await api.post(
         "/payments/order",
         { amount: subtotal, currency: "INR", items },
         { headers }
       );
 
-      const razorpay = new window.Razorpay({
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_key",
+      const options = {
+        key: razorpayKey, // ✅ validated key use ho rahi hai
         amount: orderData.amount,
         currency: orderData.currency,
+        name: "SHOPX AI",
+        description: "Secure Payment for your Order",
         order_id: orderData.razorpay_order_id,
-        name: "Shopx Store",
-        description: "AI-powered cart checkout",
         prefill: {
-          name: user.name,
-          email: user.email
+          name: user.name || "",
+          email: user.email || "",
+        },
+        theme: {
+          color: "#6c63ff",
         },
         handler: async (response) => {
-          const { data: verifyData } = await api.post("/payments/verify", response, { headers });
-          if (!verifyData?.success) throw new Error("Payment verification failed");
-
-          addOrder({
-            id: orderData.razorpay_order_id,
-            amount: subtotal,
-            items,
-            status: "paid",
-            createdAt: new Date().toISOString()
-          });
-          clearCart();
-          toast.success("Payment successful");
-          setTimeout(() => navigate("/profile"), 800);
+          try {
+            const { data: verifyData } = await api.post("/payments/verify", response, { headers });
+            
+            if (verifyData?.success) {
+              addOrder({
+                id: orderData.razorpay_order_id,
+                amount: subtotal,
+                items,
+                status: "paid",
+                createdAt: new Date().toISOString()
+              });
+              
+              clearCart();
+              toast.success("Payment Successful! Order Placed.");
+              navigate("/profile");
+            } else {
+              throw new Error("Verification failed");
+            }
+          } catch (err) {
+            console.error("Verification Error:", err);
+            toast.error("Payment verification failed. Please contact support.");
+          }
         },
-        theme: { color: "#6c63ff" }
-      });
+        modal: {
+          ondismiss: function() {
+            setIsProcessing(false);
+          }
+        }
+      };
 
-      razorpay.on("payment.failed", () => {
-        toast.error("Payment failed. Please try again.");
+      const razorpay = new window.Razorpay(options);
+
+      razorpay.on("payment.failed", function (response) {
+        toast.error(`Payment Failed: ${response.error.description}`);
+        setIsProcessing(false);
       });
 
       razorpay.open();
     } catch (error) {
-      toast.error(error?.response?.data?.message || "Checkout failed");
+      console.error("Checkout Error:", error);
+      toast.error(error?.response?.data?.message || "Could not initiate payment");
     } finally {
       setIsProcessing(false);
     }
@@ -78,7 +108,8 @@ const Cart = () => {
   return (
     <main className="mx-auto max-w-7xl px-8 py-8">
       <section className="rounded-2xl border border-border bg-card p-8">
-        <h2 className="mb-6 text-2xl font-medium text-text">Cart</h2>
+        <h2 className="mb-6 text-2xl font-medium text-text">My Shopping Cart</h2>
+        
         {cartItems.length === 0 ? (
           <div className="rounded-2xl border border-border bg-bg px-6 py-14 text-center">
             <EmptyCartIllustration />
@@ -91,48 +122,58 @@ const Cart = () => {
             </Link>
           </div>
         ) : (
-          <div className="space-y-4">
-            {cartItems.map((item) => (
-              <div key={item._id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-bg p-4">
-                <div>
-                  <p className="font-medium text-text">{item.name}</p>
-                  <p className="text-sm font-normal text-text/70">Rs. {item.price}</p>
+          <>
+            <div className="space-y-4">
+              {cartItems.map((item) => (
+                <div key={item._id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-bg p-4 shadow-sm">
+                  <div>
+                    <p className="font-medium text-text">{item.name}</p>
+                    <p className="text-sm font-normal text-text/70">Rs. {item.price}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item._id, item.quantity - 1)}
+                      className="pill-button border border-border bg-bg px-3 py-1 text-text hover:bg-card"
+                    >
+                      -
+                    </button>
+                    <span className="w-6 text-center text-sm font-bold text-text">{item.quantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item._id, item.quantity + 1)}
+                      className="pill-button border border-border bg-bg px-3 py-1 text-text hover:bg-card"
+                    >
+                      +
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => removeFromCart(item._id)} 
+                      className="ml-4 text-sm font-medium text-red-500 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => updateQuantity(item._id, item.quantity - 1)}
-                    className="pill-button border border-border bg-bg px-3 py-1 text-text"
-                  >
-                    -
-                  </button>
-                  <span className="w-6 text-center text-sm text-text">{item.quantity}</span>
-                  <button
-                    type="button"
-                    onClick={() => updateQuantity(item._id, item.quantity + 1)}
-                    className="pill-button border border-border bg-bg px-3 py-1 text-text"
-                  >
-                    +
-                  </button>
-                  <button type="button" onClick={() => removeFromCart(item._id)} className="pill-button bg-card text-text">
-                    Remove
-                  </button>
-                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
+              <div>
+                <p className="text-sm text-text/60">Total Amount</p>
+                <p className="text-2xl font-bold text-text">Rs. {subtotal}</p>
               </div>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={handleCheckout}
+                disabled={isProcessing || cartItems.length === 0}
+                className="pill-button bg-accent px-10 py-3 text-lg font-medium text-white transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isProcessing ? "Processing..." : "Pay Now"}
+              </button>
+            </div>
+          </>
         )}
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
-          <p className="text-lg font-medium text-text">Subtotal: Rs. {subtotal}</p>
-          <button
-            type="button"
-            onClick={handleCheckout}
-            disabled={isProcessing || cartItems.length === 0}
-            className="pill-button bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isProcessing ? "Processing..." : "Pay with Razorpay"}
-          </button>
-        </div>
       </section>
     </main>
   );
