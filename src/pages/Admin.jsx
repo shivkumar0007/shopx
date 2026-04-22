@@ -3,7 +3,7 @@ import { AlertTriangle, Boxes, ImagePlus, IndianRupee, LoaderCircle, Pencil, Plu
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import CouponManager from "../components/CouponManager.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 
 const MotionArticle = motion.article;
 const MotionDiv = motion.div;

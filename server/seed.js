@@ -11,6 +11,7 @@ const products = [
     price: 4999,
     description: "Lightweight sunglasses with premium polarized lenses.",
     category: "Fashion",
+    tags: ["sunglasses", "summer", "statement", "accessories"],
     image: "https://dummyimage.com/600x400/000/fff&text=AR+Sunglasses",
     stockCount: 14,
     snapLensId: "abcd1111"
@@ -20,6 +21,7 @@ const products = [
     price: 1999,
     description: "Long-lasting lipstick shades with virtual try-on support.",
     category: "Beauty",
+    tags: ["makeup", "lipstick", "glam", "beauty"],
     image: "https://dummyimage.com/600x400/900/fff&text=AR+Lipstick",
     stockCount: 3,
     snapLensId: "abcd2222"
@@ -29,6 +31,7 @@ const products = [
     price: 3499,
     description: "Cushioned running shoes built for all-day comfort.",
     category: "Footwear",
+    tags: ["shoes", "sports", "comfort", "activewear"],
     image: "https://dummyimage.com/600x400/222/fff&text=Shoes",
     stockCount: 0,
     snapLensId: ""
@@ -38,6 +41,7 @@ const products = [
     price: 7999,
     description: "Over-ear headphones with immersive audio and ANC.",
     category: "Electronics",
+    tags: ["audio", "wireless", "music", "tech"],
     image: "https://dummyimage.com/600x400/555/fff&text=Headphones",
     stockCount: 8,
     snapLensId: ""
@@ -47,6 +51,7 @@ const products = [
     price: 2899,
     description: "Durable and stylish backpack with smart organization.",
     category: "Accessories",
+    tags: ["bag", "travel", "everyday", "minimal"],
     image: "https://dummyimage.com/600x400/444/fff&text=Backpack",
     stockCount: 4,
     snapLensId: ""

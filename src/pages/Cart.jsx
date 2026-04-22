@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { EmptyCartIllustration } from "../components/EmptyStateIllustration.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 import { getDiscountedPrice, isFlashSaleActive } from "../utils/pricing.js";
 
 const Cart = () => {
@@ -11,6 +11,7 @@ const Cart = () => {
     api,
     cartItems,
     subtotal,
+    bundleDiscountAmount,
     discountAmount,
     totalAmount,
     appliedCoupon,
@@ -248,6 +249,9 @@ const Cart = () => {
                 <div className="min-w-[240px]">
                   <p className="text-sm text-text/60">Subtotal</p>
                   <p className="mt-1 text-lg font-medium text-text">Rs. {subtotal}</p>
+                  {bundleDiscountAmount > 0 ? (
+                    <p className="mt-1 text-sm text-accent">Bundle Discount: - Rs. {bundleDiscountAmount}</p>
+                  ) : null}
                   {discountAmount > 0 ? (
                     <p className="mt-1 text-sm text-accent">Discount: - Rs. {discountAmount}</p>
                   ) : null}

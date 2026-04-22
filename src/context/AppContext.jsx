@@ -1,14 +1,59 @@
 import axios from "axios";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { API_BASE_URL } from "../config/api.js";
 import { getDiscountedPrice } from "../utils/pricing.js";
+import AppContext from "./appContext.js";
 
 const api = axios.create({
   baseURL: API_BASE_URL
 });
 
-const AppContext = createContext(null);
+const DEFAULT_BUNDLE_DISCOUNT_PERCENTAGE = 5;
+
+const normalizeBundleDeals = (deals = []) =>
+  deals
+    .filter((deal) => Array.isArray(deal?.productIds) && deal.productIds.length > 0)
+    .map((deal) => ({
+      id: String(deal.id || `bundle-${Date.now()}`),
+      productIds: [...new Set(deal.productIds.map((productId) => String(productId)))],
+      discountPercentage: Math.max(0, Number(deal.discountPercentage || DEFAULT_BUNDLE_DISCOUNT_PERCENTAGE)),
+      label: String(deal.label || "Bundle Discount").trim() || "Bundle Discount"
+    }));
+
+const pruneBundleDeals = (items = [], deals = []) => {
+  const remainingCounts = new Map(
+    items.map((item) => [String(item._id), Math.max(0, Number(item.quantity) || 0)])
+  );
+
+  return normalizeBundleDeals(deals).filter((deal) => {
+    const isApplicable = deal.productIds.every((productId) => (remainingCounts.get(productId) || 0) > 0);
+    if (!isApplicable) return false;
+
+    deal.productIds.forEach((productId) => {
+      remainingCounts.set(productId, (remainingCounts.get(productId) || 0) - 1);
+    });
+
+    return true;
+  });
+};
+
+const getBundleDiscountAmount = (items = [], deals = []) => {
+  const itemMap = new Map(items.map((item) => [String(item._id), item]));
+
+  return Number(
+    pruneBundleDeals(items, deals)
+      .reduce((sum, deal) => {
+        const bundleSubtotal = deal.productIds.reduce((bundleSum, productId) => {
+          const item = itemMap.get(productId);
+          return bundleSum + getDiscountedPrice(item);
+        }, 0);
+
+        return sum + bundleSubtotal * (deal.discountPercentage / 100);
+      }, 0)
+      .toFixed(2)
+  );
+};
 
 export const AppProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
@@ -53,6 +98,14 @@ export const AppProvider = ({ children }) => {
       return null;
     }
   });
+  const [bundleDeals, setBundleDeals] = useState(() => {
+    try {
+      const raw = localStorage.getItem("nextgen-bundle-deals");
+      return raw ? normalizeBundleDeals(JSON.parse(raw)) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -87,6 +140,16 @@ export const AppProvider = ({ children }) => {
     }
   }, [appliedCoupon]);
 
+  useEffect(() => {
+    const activeDeals = pruneBundleDeals(cartItems, bundleDeals);
+
+    if (activeDeals.length > 0) {
+      localStorage.setItem("nextgen-bundle-deals", JSON.stringify(activeDeals));
+    } else {
+      localStorage.removeItem("nextgen-bundle-deals");
+    }
+  }, [bundleDeals, cartItems]);
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
@@ -98,7 +161,11 @@ export const AppProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    fetchProducts().catch(() => setProducts([]));
+    const timeoutId = window.setTimeout(() => {
+      fetchProducts().catch(() => {});
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const syncCartToServer = async (items) => {
@@ -152,6 +219,51 @@ export const AppProvider = ({ children }) => {
     });
   };
 
+  const addBundleToCart = (bundleProducts, options = {}) => {
+    const uniqueProducts = [
+      ...new Map((bundleProducts || []).filter(Boolean).map((product) => [product._id, product])).values()
+    ];
+
+    if (uniqueProducts.length < 3) {
+      toast.error("Bundle needs three available products.");
+      return;
+    }
+
+    const hasOutOfStockItem = uniqueProducts.some((product) => Number(product.stockCount) === 0);
+    if (hasOutOfStockItem) {
+      toast.error("One of the bundle items is out of stock.");
+      return;
+    }
+
+    const bundleDeal = {
+      id: `bundle-${Date.now()}`,
+      productIds: uniqueProducts.map((product) => String(product._id)),
+      discountPercentage: Math.max(
+        0,
+        Number(options.discountPercentage || DEFAULT_BUNDLE_DISCOUNT_PERCENTAGE)
+      ),
+      label: options.label || "Bundle Discount"
+    };
+
+    setCartItems((prev) => {
+      const next = uniqueProducts.reduce((items, product) => {
+        const existing = items.find((item) => item._id === product._id);
+        if (existing) {
+          return items.map((item) =>
+            item._id === product._id ? { ...item, quantity: item.quantity + 1 } : item
+          );
+        }
+
+        return [...items, { ...product, quantity: 1 }];
+      }, prev);
+
+      setBundleDeals((currentDeals) => pruneBundleDeals(next, [...currentDeals, bundleDeal]));
+      syncCartToServer(next).catch(() => {});
+      toast.success("Bundle added to cart with 5% off.");
+      return next;
+    });
+  };
+
   const removeFromCart = (productId) => {
     setCartItems((prev) => {
       const next = prev.filter((item) => item._id !== productId);
@@ -174,6 +286,7 @@ export const AppProvider = ({ children }) => {
     setCartItems((prev) => {
       if (prev.length > 0) syncCartToServer([]).catch(() => {});
       setAppliedCoupon(null);
+      setBundleDeals([]);
       return [];
     });
 
@@ -214,15 +327,17 @@ export const AppProvider = ({ children }) => {
 
   const isInWishlist = (productId) => wishlistItems.some((item) => item._id === productId);
 
-  const subtotal = cartItems.reduce(
-    (sum, item) => sum + getDiscountedPrice(item) * item.quantity,
-    0
+  const subtotal = Number(
+    cartItems.reduce((sum, item) => sum + getDiscountedPrice(item) * item.quantity, 0).toFixed(2)
   );
-  const activeCoupon = subtotal <= 0 ? null : appliedCoupon;
+  const activeBundleDeals = pruneBundleDeals(cartItems, bundleDeals);
+  const bundleDiscountAmount = getBundleDiscountAmount(cartItems, activeBundleDeals);
+  const discountedSubtotal = Number(Math.max(0, subtotal - bundleDiscountAmount).toFixed(2));
+  const activeCoupon = discountedSubtotal <= 0 ? null : appliedCoupon;
   const discountAmount = activeCoupon
-    ? Number(((subtotal * Number(activeCoupon.discountPercentage || 0)) / 100).toFixed(2))
+    ? Number(((discountedSubtotal * Number(activeCoupon.discountPercentage || 0)) / 100).toFixed(2))
     : 0;
-  const totalAmount = Number(Math.max(0, subtotal - discountAmount).toFixed(2));
+  const totalAmount = Number(Math.max(0, discountedSubtotal - discountAmount).toFixed(2));
 
   const applyCoupon = async (code) => {
     const normalizedCode = String(code || "").trim().toUpperCase();
@@ -232,7 +347,7 @@ export const AppProvider = ({ children }) => {
 
     const { data } = await api.post("/coupons/validate", {
       code: normalizedCode,
-      subtotal
+      subtotal: discountedSubtotal
     });
 
     setAppliedCoupon(data?.coupon || null);
@@ -269,66 +384,49 @@ export const AppProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setCartItems([]);
+    setBundleDeals([]);
     setWishlistItems([]);
     setAppliedCoupon(null);
     localStorage.removeItem("nextgen-cart");
+    localStorage.removeItem("nextgen-bundle-deals");
     localStorage.removeItem("nextgen-wishlist");
     toast.success("Signed out");
   };
 
-  const value = useMemo(
-    () => ({
-      api,
-      products,
-      loading,
-      fetchProducts,
-      cartItems,
-      addToCart,
-      removeFromCart,
-      updateQuantity,
-      clearCart,
-      wishlistItems,
-      addToWishlist,
-      removeFromWishlist,
-      toggleWishlist,
-      isInWishlist,
-      subtotal,
-      discountAmount,
-      totalAmount,
-      appliedCoupon: activeCoupon,
-      applyCoupon,
-      clearCoupon,
-      orders,
-      addOrder,
-      user,
-      searchQuery,
-      setSearchQuery,
-      loginDemo,
-      loginUser,
-      registerUser,
-      logout,
-      setUser
-    }),
-    [
-      products,
-      loading,
-      cartItems,
-      wishlistItems,
-      subtotal,
-      discountAmount,
-      totalAmount,
-      activeCoupon,
-      orders,
-      user,
-      searchQuery
-    ]
-  );
+  const value = {
+    api,
+    products,
+    loading,
+    fetchProducts,
+    cartItems,
+    addToCart,
+    addBundleToCart,
+    removeFromCart,
+    updateQuantity,
+    clearCart,
+    wishlistItems,
+    addToWishlist,
+    removeFromWishlist,
+    toggleWishlist,
+    isInWishlist,
+    subtotal,
+    bundleDiscountAmount,
+    discountAmount,
+    totalAmount,
+    appliedCoupon: activeCoupon,
+    applyCoupon,
+    clearCoupon,
+    orders,
+    addOrder,
+    user,
+    searchQuery,
+    setSearchQuery,
+    loginDemo,
+    loginUser,
+    registerUser,
+    logout,
+    setUser
+  };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
-};
-
-export const useApp = () => {
-  const context = useContext(AppContext);
-  if (!context) throw new Error("useApp must be used inside AppProvider");
-  return context;
 };

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Bolt, Heart, Sparkles } from "lucide-react";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 import ProductImage from "./ProductImage.jsx";
 import { formatCountdown, getDiscountedPrice, getFlashSaleTimeLeft, isFlashSaleActive } from "../utils/pricing.js";
 

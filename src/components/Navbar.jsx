@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import ProductImage from "./ProductImage.jsx";
 import ThemeToggleButton from "./ThemeToggleButton.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 
 const navLinkClass = ({ isActive }) =>
   `transition-colors ${isActive ? "text-accent" : "text-text hover:text-accent"}`;

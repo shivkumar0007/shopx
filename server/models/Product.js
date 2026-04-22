@@ -16,6 +16,7 @@ const productSchema = new mongoose.Schema(
     price: { type: Number, required: true, min: 0 },
     description: { type: String, required: true, trim: true },
     category: { type: String, required: true, trim: true },
+    tags: { type: [String], default: [] },
     image: { type: String, required: true },
     stockCount: { type: Number, required: true, min: 0, default: 0 },
     snapLensId: { type: String, default: "", trim: true },

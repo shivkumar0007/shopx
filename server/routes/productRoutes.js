@@ -3,6 +3,7 @@ import {
   addProductReview,
   createProduct,
   deleteProduct,
+  getAIRecommendations,
   getProductById,
   getProducts,
   recommendProducts,
@@ -14,6 +15,7 @@ const router = express.Router();
 
 router.get("/", getProducts);
 router.get("/recommend/:userId", recommendProducts);
+router.get("/:id/recommendations", getAIRecommendations);
 router.get("/:id", getProductById);
 router.post("/:id/reviews", protect, addProductReview);
 router.post("/", protect, adminOnly, createProduct);

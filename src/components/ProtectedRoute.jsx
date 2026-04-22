@@ -1,5 +1,5 @@
 import { Navigate } from "react-router-dom";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 
 const ProtectedRoute = ({ children, requireAdmin = false }) => {
   const { user } = useApp();

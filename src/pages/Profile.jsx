@@ -1,4 +1,4 @@
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 import { Link } from "react-router-dom";
 
 const Profile = () => {

@@ -1,7 +1,7 @@
 import { ImagePlus, LoaderCircle, Star, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 import { uploadImageToCloudinary } from "../utils/cloudinary.js";
 
 const ReviewForm = ({ productId, onReviewAdded }) => {

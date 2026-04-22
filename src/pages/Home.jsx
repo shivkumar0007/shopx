@@ -4,7 +4,7 @@ import toast from "react-hot-toast";
 import { Bolt } from "lucide-react";
 import ProductCard from "../components/ProductCard.jsx";
 import ProductImage from "../components/ProductImage.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 import { formatCountdown, getDiscountedPrice, getFlashSaleTimeLeft, isFlashSaleActive } from "../utils/pricing.js";
 
 const SearchResultRow = ({ product, addToCart, now }) => {

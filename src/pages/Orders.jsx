@@ -2,7 +2,7 @@ import { Download, LoaderCircle, ReceiptText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import OrderTracking from "../components/OrderTracking.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("en-IN", {

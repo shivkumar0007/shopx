@@ -3,20 +3,25 @@ import { Bolt, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import ARModal from "../components/ARModal.jsx";
+import CombinationGrid from "../components/CombinationGrid.jsx";
 import ProductImage from "../components/ProductImage.jsx";
 import ReviewForm from "../components/ReviewForm.jsx";
 import ReviewList from "../components/ReviewList.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 import { formatCountdown, getDiscountedPrice, getFlashSaleTimeLeft, isFlashSaleActive } from "../utils/pricing.js";
 
 const MotionDiv = motion.div;
 
 const ProductPage = () => {
   const { id } = useParams();
-  const { products, api, addToCart } = useApp();
+  const { products, api, addToCart, addBundleToCart } = useApp();
   const [product, setProduct] = useState(() => products.find((item) => item._id === id) || null);
   const [showAR, setShowAR] = useState(false);
   const [now, setNow] = useState(() => new Date().getTime());
+  const [recommendationResult, setRecommendationResult] = useState({
+    productId: "",
+    recommendations: []
+  });
 
   useEffect(() => {
     let ignore = false;
@@ -34,6 +39,35 @@ const ProductPage = () => {
       ignore = true;
     };
   }, [api, id]);
+
+  useEffect(() => {
+    if (!product?._id) return undefined;
+
+    let ignore = false;
+
+    api
+      .get(`/products/${product._id}/recommendations`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setRecommendationResult({
+            productId: product._id,
+            recommendations: data?.recommendations || []
+          });
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setRecommendationResult({
+            productId: product._id,
+            recommendations: []
+          });
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [api, product?._id]);
 
   useEffect(() => {
     if (!product?.saleEndTime || !isFlashSaleActive(product)) return undefined;
@@ -66,6 +100,9 @@ const ProductPage = () => {
   const flashSaleActive = isFlashSaleActive(product, now);
   const discountedPrice = getDiscountedPrice(product, now);
   const timeLeft = getFlashSaleTimeLeft(product, now);
+  const recommendationsLoading = Boolean(product?._id) && recommendationResult.productId !== product._id;
+  const recommendations =
+    recommendationResult.productId === product._id ? recommendationResult.recommendations : [];
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -175,6 +212,13 @@ const ProductPage = () => {
             onReviewAdded={(updatedProduct) => setProduct(updatedProduct)}
           />
         </div>
+
+        <CombinationGrid
+          recommendations={recommendations}
+          loading={recommendationsLoading}
+          canAddBundle={recommendations.length === 3}
+          onAddBundle={() => addBundleToCart(recommendations.map((item) => item.product))}
+        />
       </div>
 
       <ARModal open={showAR} lensId={lensId} onClose={() => setShowAR(false)} />

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Heart } from "lucide-react";
 import { EmptyWishlistIllustration } from "../components/EmptyStateIllustration.jsx";
-import { useApp } from "../context/AppContext.jsx";
+import { useApp } from "../context/useApp.jsx";
 
 const Wishlist = () => {
   const { wishlistItems, removeFromWishlist, addToCart } = useApp();
