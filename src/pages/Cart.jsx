@@ -3,11 +3,41 @@ import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { EmptyCartIllustration } from "../components/EmptyStateIllustration.jsx";
 import { useApp } from "../context/AppContext.jsx";
+import { getDiscountedPrice, isFlashSaleActive } from "../utils/pricing.js";
 
 const Cart = () => {
   const navigate = useNavigate();
-  const { api, cartItems, subtotal, updateQuantity, removeFromCart, clearCart, addOrder, user } = useApp();
+  const {
+    api,
+    cartItems,
+    subtotal,
+    discountAmount,
+    totalAmount,
+    appliedCoupon,
+    applyCoupon,
+    clearCoupon,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
+    addOrder,
+    user
+  } = useApp();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [promoCode, setPromoCode] = useState(() => appliedCoupon?.code || "");
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+
+  const handleApplyCoupon = async () => {
+    try {
+      setIsApplyingCoupon(true);
+      const data = await applyCoupon(promoCode);
+      setPromoCode(data?.coupon?.code || "");
+      toast.success("Promo code applied.");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || "Promo code is invalid.");
+    } finally {
+      setIsApplyingCoupon(false);
+    }
+  };
 
   const handleCheckout = async () => {
     if (!user?.token) {
@@ -35,12 +65,14 @@ const Cart = () => {
       const items = cartItems.map((item) => ({
         product: item._id,
         quantity: item.quantity,
-        price: item.price
+        price: getDiscountedPrice(item),
+        productName: item.name,
+        productImage: item.image
       }));
 
       const { data: orderData } = await api.post(
         "/payments/order",
-        { amount: subtotal, currency: "INR", items },
+        { amount: totalAmount, currency: "INR", items, couponCode: appliedCoupon?.code || "" },
         { headers }
       );
 
@@ -63,14 +95,20 @@ const Cart = () => {
             const { data: verifyData } = await api.post("/payments/verify", response, { headers });
             
             if (verifyData?.success) {
+              const verifiedOrder = verifyData.order;
               addOrder({
-                id: orderData.razorpay_order_id,
-                amount: subtotal,
-                items,
-                status: "paid",
-                createdAt: new Date().toISOString()
+                _id: verifiedOrder?._id,
+                id: verifiedOrder?.razorpayOrderId || orderData.razorpay_order_id,
+                amount: totalAmount,
+                totalPrice: totalAmount,
+                items: verifiedOrder?.items || items,
+                status: verifiedOrder?.status || "paid",
+                orderStatus: verifiedOrder?.orderStatus || "Processing",
+                invoiceNumber: verifiedOrder?.invoiceNumber || "",
+                createdAt: verifiedOrder?.createdAt || new Date().toISOString()
               });
               
+              clearCoupon();
               clearCart();
               toast.success("Payment Successful! Order Placed.");
               navigate("/profile");
@@ -128,7 +166,17 @@ const Cart = () => {
                 <div key={item._id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-bg p-4 shadow-sm">
                   <div>
                     <p className="font-medium text-text">{item.name}</p>
-                    <p className="text-sm font-normal text-text/70">Rs. {item.price}</p>
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-normal">
+                      <span className="text-text/70">Rs. {getDiscountedPrice(item)}</span>
+                      {isFlashSaleActive(item) ? (
+                        <>
+                          <span className="text-text/35 line-through">Rs. {item.price}</span>
+                          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs text-accent">
+                            Flash Sale
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <button
@@ -158,10 +206,61 @@ const Cart = () => {
               ))}
             </div>
 
+            <div className="mt-8 rounded-2xl border border-border bg-bg p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="w-full max-w-xl">
+                  <p className="text-sm font-medium text-text">Promo Code</p>
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                    <input
+                      value={promoCode}
+                      onChange={(event) => setPromoCode(event.target.value.toUpperCase())}
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15"
+                      placeholder="Enter promo code"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCoupon}
+                      disabled={isApplyingCoupon || !promoCode.trim()}
+                      className="pill-button bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isApplyingCoupon ? "Applying..." : "Apply"}
+                    </button>
+                    {appliedCoupon ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearCoupon();
+                          setPromoCode("");
+                        }}
+                        className="pill-button bg-card text-text"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  {appliedCoupon ? (
+                    <p className="mt-3 text-sm text-accent">
+                      {appliedCoupon.code} applied for {appliedCoupon.discountPercentage}% off.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="min-w-[240px]">
+                  <p className="text-sm text-text/60">Subtotal</p>
+                  <p className="mt-1 text-lg font-medium text-text">Rs. {subtotal}</p>
+                  {discountAmount > 0 ? (
+                    <p className="mt-1 text-sm text-accent">Discount: - Rs. {discountAmount}</p>
+                  ) : null}
+                  <p className="mt-3 text-sm text-text/60">Total Amount</p>
+                  <p className="text-2xl font-bold text-text">Rs. {totalAmount}</p>
+                </div>
+              </div>
+            </div>
+
             <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
               <div>
-                <p className="text-sm text-text/60">Total Amount</p>
-                <p className="text-2xl font-bold text-text">Rs. {subtotal}</p>
+                <p className="text-sm text-text/60">Payable Amount</p>
+                <p className="text-2xl font-bold text-text">Rs. {totalAmount}</p>
               </div>
               <button
                 type="button"

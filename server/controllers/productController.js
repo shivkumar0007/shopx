@@ -4,6 +4,13 @@ import { normalizeSnapLensId } from "../utils/snapLens.js";
 
 const buildProductPayload = (body) => {
   const snapLensId = normalizeSnapLensId(body.snapLensId || "");
+  const isFlashSale = Boolean(body.isFlashSale);
+  const discountPercentage = Math.max(0, Math.min(90, Number(body.discountPercentage || 0)));
+  const saleDurationHours = Math.max(0, Number(body.saleDurationHours ?? body.saleDuration ?? 0));
+  const saleEndTime =
+    isFlashSale && discountPercentage > 0 && saleDurationHours > 0
+      ? new Date(Date.now() + saleDurationHours * 60 * 60 * 1000)
+      : null;
 
   return {
     name: body.name,
@@ -13,7 +20,11 @@ const buildProductPayload = (body) => {
     image: body.image,
     stockCount: Math.max(0, Number(body.stockCount ?? 0)),
     snapLensId,
-    isArEnabled: Boolean(snapLensId)
+    isArEnabled: Boolean(snapLensId),
+    isFlashSale: Boolean(saleEndTime),
+    discountPercentage: saleEndTime ? discountPercentage : 0,
+    saleDurationHours: saleEndTime ? saleDurationHours : 0,
+    saleEndTime
   };
 };
 
@@ -40,6 +51,40 @@ export const getProductById = async (req, res, next) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: "Product not found" });
     return res.json(product);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const addProductReview = async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
+    const rating = Number(req.body.rating);
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: "Rating must be between 1 and 5." });
+    }
+
+    const reviewPayload = {
+      userName: req.user?.name || "Customer",
+      rating,
+      comment: req.body.comment?.trim() || "",
+      reviewImage: req.body.reviewImage?.trim() || ""
+    };
+
+    const existingReview = product.reviews.find((review) => review.userName === reviewPayload.userName);
+
+    if (existingReview) {
+      existingReview.rating = reviewPayload.rating;
+      existingReview.comment = reviewPayload.comment;
+      existingReview.reviewImage = reviewPayload.reviewImage;
+    } else {
+      product.reviews.unshift(reviewPayload);
+    }
+
+    await product.save();
+    return res.status(201).json(product);
   } catch (error) {
     next(error);
   }

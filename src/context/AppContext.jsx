@@ -2,6 +2,7 @@ import axios from "axios";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { API_BASE_URL } from "../config/api.js";
+import { getDiscountedPrice } from "../utils/pricing.js";
 
 const api = axios.create({
   baseURL: API_BASE_URL
@@ -44,6 +45,14 @@ export const AppProvider = ({ children }) => {
     }
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState(() => {
+    try {
+      const raw = localStorage.getItem("nextgen-coupon");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -69,6 +78,14 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem("nextgen-cart", JSON.stringify(cartItems));
   }, [cartItems]);
+
+  useEffect(() => {
+    if (appliedCoupon) {
+      localStorage.setItem("nextgen-coupon", JSON.stringify(appliedCoupon));
+    } else {
+      localStorage.removeItem("nextgen-coupon");
+    }
+  }, [appliedCoupon]);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -156,6 +173,7 @@ export const AppProvider = ({ children }) => {
   const clearCart = () =>
     setCartItems((prev) => {
       if (prev.length > 0) syncCartToServer([]).catch(() => {});
+      setAppliedCoupon(null);
       return [];
     });
 
@@ -196,7 +214,34 @@ export const AppProvider = ({ children }) => {
 
   const isInWishlist = (productId) => wishlistItems.some((item) => item._id === productId);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = cartItems.reduce(
+    (sum, item) => sum + getDiscountedPrice(item) * item.quantity,
+    0
+  );
+  const activeCoupon = subtotal <= 0 ? null : appliedCoupon;
+  const discountAmount = activeCoupon
+    ? Number(((subtotal * Number(activeCoupon.discountPercentage || 0)) / 100).toFixed(2))
+    : 0;
+  const totalAmount = Number(Math.max(0, subtotal - discountAmount).toFixed(2));
+
+  const applyCoupon = async (code) => {
+    const normalizedCode = String(code || "").trim().toUpperCase();
+    if (!normalizedCode) {
+      throw new Error("Please enter a promo code.");
+    }
+
+    const { data } = await api.post("/coupons/validate", {
+      code: normalizedCode,
+      subtotal
+    });
+
+    setAppliedCoupon(data?.coupon || null);
+    return data;
+  };
+
+  const clearCoupon = () => {
+    setAppliedCoupon(null);
+  };
 
   const loginDemo = () => {
     setUser({
@@ -225,6 +270,7 @@ export const AppProvider = ({ children }) => {
     setUser(null);
     setCartItems([]);
     setWishlistItems([]);
+    setAppliedCoupon(null);
     localStorage.removeItem("nextgen-cart");
     localStorage.removeItem("nextgen-wishlist");
     toast.success("Signed out");
@@ -247,6 +293,11 @@ export const AppProvider = ({ children }) => {
       toggleWishlist,
       isInWishlist,
       subtotal,
+      discountAmount,
+      totalAmount,
+      appliedCoupon: activeCoupon,
+      applyCoupon,
+      clearCoupon,
       orders,
       addOrder,
       user,
@@ -258,7 +309,19 @@ export const AppProvider = ({ children }) => {
       logout,
       setUser
     }),
-    [products, loading, cartItems, wishlistItems, subtotal, orders, user, searchQuery]
+    [
+      products,
+      loading,
+      cartItems,
+      wishlistItems,
+      subtotal,
+      discountAmount,
+      totalAmount,
+      activeCoupon,
+      orders,
+      user,
+      searchQuery
+    ]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

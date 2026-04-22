@@ -1,58 +1,100 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import { Bolt } from "lucide-react";
 import ProductCard from "../components/ProductCard.jsx";
 import ProductImage from "../components/ProductImage.jsx";
 import { useApp } from "../context/AppContext.jsx";
+import { formatCountdown, getDiscountedPrice, getFlashSaleTimeLeft, isFlashSaleActive } from "../utils/pricing.js";
 
-const SearchResultRow = ({ product, addToCart }) => (
-  <article className="grid gap-5 rounded-[1.75rem] border border-border bg-card p-5 transition-all duration-300 hover:border-accent/35 hover:shadow-[0_16px_45px_rgba(15,23,42,0.06)] md:grid-cols-[220px_minmax(0,1fr)]">
-    <Link to={`/products/${product._id}`} className="overflow-hidden rounded-[1.5rem] bg-bg">
-      <ProductImage src={product.image} alt={product.name} className="h-52 w-full object-cover" />
-    </Link>
-    <div className="flex flex-col justify-between gap-4">
-      <div>
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">{product.category}</p>
-        <Link to={`/products/${product._id}`} className="mt-2 block text-2xl font-medium text-text">
-          {product.name}
-        </Link>
-        <p className="mt-3 text-sm leading-7 text-text/72">{product.description}</p>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col">
-          <span className="text-2xl font-medium text-text">Rs. {product.price}</span>
-          <span className="text-xs text-text/55">
-            {product.stockCount > 0 ? `${product.stockCount} available` : "Currently out of stock"}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to={`/products/${product._id}`} className="pill-button bg-bg text-text">
-            View Product
+const SearchResultRow = ({ product, addToCart, now }) => {
+  const flashSaleActive = isFlashSaleActive(product, now);
+  const displayPrice = getDiscountedPrice(product, now);
+  const timeLeft = getFlashSaleTimeLeft(product, now);
+
+  return (
+    <article className="grid gap-5 rounded-[1.75rem] border border-border bg-card p-5 transition-all duration-300 hover:border-accent/35 hover:shadow-[0_16px_45px_rgba(15,23,42,0.06)] md:grid-cols-[220px_minmax(0,1fr)]">
+      <Link to={`/products/${product._id}`} className="overflow-hidden rounded-[1.5rem] bg-bg">
+        <ProductImage src={product.image} alt={product.name} className="h-52 w-full object-cover" />
+      </Link>
+      <div className="flex flex-col justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">{product.category}</p>
+            {flashSaleActive ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1 text-xs font-medium text-white shadow-[0_12px_35px_rgba(108,99,255,0.2)]">
+                <Bolt size={12} strokeWidth={2} />
+                Flash Sale
+              </span>
+            ) : null}
+          </div>
+          <Link to={`/products/${product._id}`} className="mt-2 block text-2xl font-medium text-text">
+            {product.name}
           </Link>
-          <button
-            type="button"
-            onClick={() => addToCart(product)}
-            disabled={product.stockCount === 0}
-            className="pill-button bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {product.stockCount === 0 ? "Out of Stock" : "Add to Cart"}
-          </button>
+          <p className="mt-3 text-sm leading-7 text-text/72">{product.description}</p>
+          {flashSaleActive ? (
+            <div className="mt-4 inline-flex items-center gap-3 rounded-full border border-accent/20 bg-accent/10 px-4 py-2">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-accent">Ends In</span>
+              <span className="text-sm font-medium tracking-[0.18em] text-text">
+                {formatCountdown(timeLeft)}
+              </span>
+              <span className="text-xs text-accent/80">{product.discountPercentage}% off</span>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-2xl font-medium text-text">Rs. {displayPrice}</span>
+            {flashSaleActive ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-text/40 line-through">Rs. {product.price}</span>
+                <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
+                  {product.discountPercentage}% off
+                </span>
+              </div>
+            ) : null}
+            <span className="text-xs text-text/55">
+              {product.stockCount > 0 ? `${product.stockCount} available` : "Currently out of stock"}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/products/${product._id}`} className="pill-button bg-bg text-text">
+              View Product
+            </Link>
+            <button
+              type="button"
+              onClick={() => addToCart(product)}
+              disabled={product.stockCount === 0}
+              className="pill-button bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {product.stockCount === 0 ? "Out of Stock" : "Add to Cart"}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  </article>
-);
+    </article>
+  );
+};
 
 const Home = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { products, loading, user, searchQuery, addToCart } = useApp();
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!location.state?.notAuthorized) return;
     toast.error("Not Authorized");
     navigate(location.pathname, { replace: true, state: {} });
   }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const isSearching = Boolean(normalizedQuery);
@@ -123,7 +165,7 @@ const Home = () => {
           {forYouProducts.length > 0 ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
               {forYouProducts.slice(0, 6).map((product) => (
-                <ProductCard key={`for-you-${product._id}`} product={product} />
+                <ProductCard key={`for-you-${product._id}`} product={product} now={now} />
               ))}
             </div>
           ) : (
@@ -145,7 +187,8 @@ const Home = () => {
                 <div className="skeleton-shimmer h-4 w-3/4 rounded-full" />
               </div>
             ))}
-          {!loading && featuredProducts.map((product) => <ProductCard key={product._id} product={product} />)}
+          {!loading &&
+            featuredProducts.map((product) => <ProductCard key={product._id} product={product} now={now} />)}
           {!loading && featuredProducts.length === 0 && (
             <div className="col-span-full rounded-2xl border border-border bg-card p-6 text-sm font-normal text-text/70">
               No products match your current search.
@@ -170,7 +213,7 @@ const Home = () => {
               </div>
             ))}
           {!loading && featuredProducts.map((product) => (
-            <SearchResultRow key={product._id} product={product} addToCart={addToCart} />
+            <SearchResultRow key={product._id} product={product} addToCart={addToCart} now={now} />
           ))}
           {!loading && featuredProducts.length === 0 && (
             <div className="rounded-[1.75rem] border border-border bg-card p-6 text-sm font-normal text-text/70">

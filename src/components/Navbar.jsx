@@ -3,16 +3,14 @@ import {
   Heart,
   ImagePlus,
   Mic,
-  Moon,
   Search,
   ShoppingBag,
-  Sun,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import ProductImage from "./ProductImage.jsx";
-import { useTheme } from "../theme/ThemeContext.jsx";
+import ThemeToggleButton from "./ThemeToggleButton.jsx";
 import { useApp } from "../context/AppContext.jsx";
 
 const navLinkClass = ({ isActive }) =>
@@ -85,7 +83,6 @@ const prepareImageForSearch = async (file) => {
 };
 
 const Navbar = () => {
-  const { toggleTheme, isDark } = useTheme();
   const {
     api,
     products,
@@ -437,14 +434,7 @@ const Navbar = () => {
               </Link>
             </>
           )}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="icon-pill border border-border p-2.5 hover:bg-card"
-            aria-label="Toggle theme"
-          >
-            {isDark ? <Sun size={18} className="text-text" /> : <Moon size={18} className="text-text" />}
-          </button>
+          <ThemeToggleButton />
         </div>
       </div>
     </header>

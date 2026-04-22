@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Boxes, ImagePlus, IndianRupee, LoaderCircle, Pencil, Plus, Save, ShoppingCart, Trash2, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import CouponManager from "../components/CouponManager.jsx";
 import { useApp } from "../context/AppContext.jsx";
 
 const MotionArticle = motion.article;
@@ -15,7 +16,10 @@ const initialForm = {
   category: "",
   description: "",
   image: "",
-  snapLensId: ""
+  snapLensId: "",
+  isFlashSale: false,
+  discountPercentage: "",
+  saleDurationHours: "2"
 };
 
 const ORDER_ENDPOINTS = [
@@ -60,6 +64,14 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 0
   }).format(Number(value) || 0);
 
+const formatDateTime = (value) =>
+  value
+    ? new Date(value).toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    })
+    : "No sale scheduled";
+
 const fieldLabel = "mb-2 block text-xs font-medium uppercase tracking-[0.24em] text-text/55";
 
 const analyticsMotion = {
@@ -68,7 +80,6 @@ const analyticsMotion = {
   transition: { duration: 0.3 }
 };
 
-// ✅ FIXED: Icon ko JSX se render karo, function call nahi
 const AnalyticsCard = ({ icon: Icon, label, value, helper }) => {
   return (
     <MotionArticle
@@ -77,7 +88,7 @@ const AnalyticsCard = ({ icon: Icon, label, value, helper }) => {
     >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
       <div className="mb-4 inline-flex rounded-2xl border border-accent/15 bg-accent/10 p-3 text-accent">
-        <Icon size={20} strokeWidth={1.8} />
+        <Icon size={20} strokeWidth={1.8} /> {/* ✅ */}
       </div>
       <p className="text-sm font-medium text-text/65">{label}</p>
       <p className="mt-2 text-3xl font-medium tracking-tight text-text">{value}</p>
@@ -346,7 +357,10 @@ const Admin = () => {
       category: product.category,
       description: product.description,
       image: product.image,
-      snapLensId: product.snapLensId || ""
+      snapLensId: product.snapLensId || "",
+      isFlashSale: Boolean(product.isFlashSale),
+      discountPercentage: String(product.discountPercentage ?? ""),
+      saleDurationHours: String(product.saleDurationHours || 2)
     });
   };
 
@@ -504,6 +518,61 @@ const Admin = () => {
               />
             </label>
 
+            <div className="rounded-[1.5rem] border border-border bg-bg p-5 md:col-span-2">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-text">Flash Sale</p>
+                  <p className="mt-1 text-sm text-text/60">
+                    Turn on a limited-time product discount with automatic end time.
+                  </p>
+                </div>
+
+                <label className="inline-flex items-center gap-3 rounded-full border border-border bg-card px-4 py-2 text-sm text-text">
+                  <input
+                    name="isFlashSale"
+                    type="checkbox"
+                    checked={Boolean(form.isFlashSale)}
+                    onChange={handleChange}
+                    className="h-4 w-4 accent-[var(--color-accent)]"
+                  />
+                  Enable Flash Sale
+                </label>
+              </div>
+
+              {form.isFlashSale ? (
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <label>
+                    <span className={fieldLabel}>Discount Percentage</span>
+                    <input
+                      name="discountPercentage"
+                      value={form.discountPercentage}
+                      onChange={handleChange}
+                      className={INPUT_CLASS_NAME}
+                      placeholder="20"
+                      type="number"
+                      min="1"
+                      max="90"
+                      required={form.isFlashSale}
+                    />
+                  </label>
+
+                  <label>
+                    <span className={fieldLabel}>Sale Duration (Hours)</span>
+                    <input
+                      name="saleDurationHours"
+                      value={form.saleDurationHours}
+                      onChange={handleChange}
+                      className={INPUT_CLASS_NAME}
+                      placeholder="2"
+                      type="number"
+                      min="1"
+                      required={form.isFlashSale}
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </div>
+
             <ImageUploadField
               id="create-product-image"
               image={form.image}
@@ -551,6 +620,8 @@ const Admin = () => {
             </span>
           </div>
         </form>
+
+        <CouponManager />
 
         <section className={`${PANEL_CLASS_NAME} overflow-hidden`}>
           <div className="flex flex-col gap-2 border-b border-border px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
@@ -627,15 +698,71 @@ const Admin = () => {
 
                         <td className="px-4 py-4">
                           {isEditing ? (
-                            <input
-                              className={INPUT_CLASS_NAME}
-                              type="number"
-                              min="0"
-                              value={editingForm.price}
-                              onChange={(event) => setEditingForm((prev) => ({ ...prev, price: event.target.value }))}
-                            />
+                            <div className="space-y-3">
+                              <input
+                                className={INPUT_CLASS_NAME}
+                                type="number"
+                                min="0"
+                                value={editingForm.price}
+                                onChange={(event) => setEditingForm((prev) => ({ ...prev, price: event.target.value }))}
+                              />
+                              <label className="flex items-center gap-2 text-xs text-text/70">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(editingForm.isFlashSale)}
+                                  onChange={(event) =>
+                                    setEditingForm((prev) => ({ ...prev, isFlashSale: event.target.checked }))
+                                  }
+                                  className="h-4 w-4 accent-[var(--color-accent)]"
+                                />
+                                Flash Sale
+                              </label>
+                              {editingForm.isFlashSale ? (
+                                <div className="grid gap-3">
+                                  <input
+                                    className={INPUT_CLASS_NAME}
+                                    type="number"
+                                    min="1"
+                                    max="90"
+                                    placeholder="Discount %"
+                                    value={editingForm.discountPercentage}
+                                    onChange={(event) =>
+                                      setEditingForm((prev) => ({
+                                        ...prev,
+                                        discountPercentage: event.target.value
+                                      }))
+                                    }
+                                  />
+                                  <input
+                                    className={INPUT_CLASS_NAME}
+                                    type="number"
+                                    min="1"
+                                    placeholder="Duration (Hours)"
+                                    value={editingForm.saleDurationHours}
+                                    onChange={(event) =>
+                                      setEditingForm((prev) => ({
+                                        ...prev,
+                                        saleDurationHours: event.target.value
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
                           ) : (
-                            <span className="font-medium text-text">{formatCurrency(product.price)}</span>
+                            <div>
+                              <span className="font-medium text-text">{formatCurrency(product.price)}</span>
+                              {product.isFlashSale && product.saleEndTime ? (
+                                <div className="mt-2 space-y-1">
+                                  <span className="inline-flex rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+                                    {product.discountPercentage}% off
+                                  </span>
+                                  <p className="text-xs text-text/55">
+                                    Ends {formatDateTime(product.saleEndTime)}
+                                  </p>
+                                </div>
+                              ) : null}
+                            </div>
                           )}
                         </td>
 
@@ -651,13 +778,18 @@ const Admin = () => {
                               }
                             />
                           ) : (
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                                stockCount < 5 ? "bg-red-500/15 text-red-500" : "bg-accent/10 text-accent"
-                              }`}
-                            >
-                              {stockCount < 5 ? `Low: ${stockCount}` : `${stockCount} in stock`}
-                            </span>
+                            <div className="space-y-2">
+                              <span
+                                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                                  stockCount < 5 ? "bg-red-500/15 text-red-500" : "bg-accent/10 text-accent"
+                                }`}
+                              >
+                                {stockCount < 5 ? `Low: ${stockCount}` : `${stockCount} in stock`}
+                              </span>
+                              <p className="text-xs text-text/55">
+                                {product.isFlashSale && product.saleEndTime ? "Flash sale scheduled" : "Regular pricing"}
+                              </p>
+                            </div>
                           )}
                         </td>
 
@@ -834,6 +966,56 @@ const Admin = () => {
                           </label>
                         </div>
 
+                        <div className="rounded-2xl border border-border bg-card p-4">
+                          <label className="flex items-center gap-3 text-sm text-text">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(editingForm.isFlashSale)}
+                              onChange={(event) =>
+                                setEditingForm((prev) => ({ ...prev, isFlashSale: event.target.checked }))
+                              }
+                              className="h-4 w-4 accent-[var(--color-accent)]"
+                            />
+                            Enable Flash Sale
+                          </label>
+
+                          {editingForm.isFlashSale ? (
+                            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                              <label>
+                                <span className={fieldLabel}>Discount Percentage</span>
+                                <input
+                                  className={INPUT_CLASS_NAME}
+                                  type="number"
+                                  min="1"
+                                  max="90"
+                                  value={editingForm.discountPercentage}
+                                  onChange={(event) =>
+                                    setEditingForm((prev) => ({
+                                      ...prev,
+                                      discountPercentage: event.target.value
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span className={fieldLabel}>Sale Duration (Hours)</span>
+                                <input
+                                  className={INPUT_CLASS_NAME}
+                                  type="number"
+                                  min="1"
+                                  value={editingForm.saleDurationHours}
+                                  onChange={(event) =>
+                                    setEditingForm((prev) => ({
+                                      ...prev,
+                                      saleDurationHours: event.target.value
+                                    }))
+                                  }
+                                />
+                              </label>
+                            </div>
+                          ) : null}
+                        </div>
+
                         <ImageUploadField
                           id={`mobile-edit-image-${product._id}`}
                           image={editingForm.image}
@@ -898,11 +1080,19 @@ const Admin = () => {
                           <div className="rounded-2xl border border-border bg-card p-3">
                             <p className="text-xs uppercase tracking-[0.18em] text-text/50">Price</p>
                             <p className="mt-2 text-base font-medium text-text">{formatCurrency(product.price)}</p>
+                            {product.isFlashSale && product.saleEndTime ? (
+                              <p className="mt-2 text-xs text-accent">
+                                {product.discountPercentage}% off until {formatDateTime(product.saleEndTime)}
+                              </p>
+                            ) : null}
                           </div>
                           <div className="rounded-2xl border border-border bg-card p-3">
                             <p className="text-xs uppercase tracking-[0.18em] text-text/50">Stock</p>
                             <p className={`mt-2 text-base font-medium ${stockCount < 5 ? "text-red-500" : "text-text"}`}>
                               {stockCount}
+                            </p>
+                            <p className="mt-2 text-xs text-text/50">
+                              {product.isFlashSale && product.saleEndTime ? "Flash sale active" : "Regular pricing"}
                             </p>
                           </div>
                         </div>
