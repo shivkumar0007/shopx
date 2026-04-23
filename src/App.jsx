@@ -1,10 +1,10 @@
 import { AnimatePresence } from "framer-motion";
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
-import AIChat from "./components/AIChat.jsx";
 import Navbar from "./components/Navbar.jsx";
 import PageFade from "./components/PageFade.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import VirtualAssistant from "./components/VirtualAssistant.jsx";
 import { AppProvider } from "./context/AppContext.jsx";
 import { ThemeProvider } from "./theme/ThemeContext.jsx";
 
@@ -134,7 +134,7 @@ const App = () => {
             >
               <AnimatedRoutes />
             </Suspense>
-            <AIChat />
+            <VirtualAssistant />
           </div>
         </BrowserRouter>
       </AppProvider>
