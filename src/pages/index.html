@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Virtual Store Game</title>
+
+<style>
+/* ========== GLOBAL ========== */
+body {
+  margin: 0;
+  background: #020b18;
+  font-family: sans-serif;
+  color: white;
+  overflow: hidden;
+}
+
+/* ========== GAME AREA ========== */
+#game {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  border: 2px solid #00c8ff;
+  box-shadow: 0 0 40px #00c8ff33 inset;
+}
+
+/* ========== PLAYER ========== */
+.player {
+  width: 30px;
+  height: 30px;
+  background: cyan;
+  border-radius: 50%;
+  position: absolute;
+  box-shadow: 0 0 15px cyan;
+}
+
+/* ========== ZONES ========== */
+.zone {
+  position: absolute;
+  border: 2px solid;
+  opacity: 0.3;
+}
+
+.electronics { border-color: #00c8ff; background:#00c8ff22; }
+.fashion { border-color: #ff3cc8; background:#ff3cc822; }
+.grocery { border-color: #00ff8c; background:#00ff8c22; }
+.flash { border-color: red; background:#ff000022; }
+
+/* ========== SHELVES ========== */
+.shelf {
+  position: absolute;
+  width: 80px;
+  height: 50px;
+  background: #111;
+  border: 1px solid #00c8ff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:10px;
+  text-align:center;
+}
+
+.shelf.active {
+  box-shadow: 0 0 10px #00c8ff;
+}
+
+/* ========== UI PANELS ========== */
+.panel {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  background: #000a;
+  border: 1px solid #00c8ff;
+  padding: 10px;
+  width: 220px;
+}
+
+/* POPUP */
+#popup {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: #000a;
+  border: 1px solid cyan;
+  padding: 10px;
+  display: none;
+}
+
+/* BUTTON */
+button {
+  background: cyan;
+  border: none;
+  padding: 5px 10px;
+  margin-top:5px;
+  cursor: pointer;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="game">
+
+  <!-- PLAYER -->
+  <div id="player" class="player"></div>
+
+  <!-- ZONES -->
+  <div class="zone electronics" style="left:50px;top:50px;width:300px;height:200px;"></div>
+  <div class="zone fashion" style="left:400px;top:50px;width:300px;height:200px;"></div>
+  <div class="zone grocery" style="left:50px;top:300px;width:300px;height:200px;"></div>
+  <div class="zone flash" style="left:400px;top:300px;width:200px;height:150px;"></div>
+
+  <!-- COUNTER -->
+  <div id="counter" style="position:absolute;right:50px;bottom:100px;width:150px;height:60px;border:2px solid orange;">
+  </div>
+
+  <!-- EXIT -->
+  <div id="exit" style="position:absolute;right:50px;top:20px;width:80px;height:80px;border:2px solid red;">
+  </div>
+
+</div>
+
+<!-- UI -->
+<div class="panel">
+  <h4>Cart</h4>
+  <div id="cart"></div>
+  <p>Total: ₹<span id="total">0</span></p>
+</div>
+
+<div id="popup"></div>
+
+<script>
+
+/* ========== DATA ========== */
+const shelves = [
+  {x:80,y:80,name:"Phone",price:10000},
+  {x:450,y:80,name:"Shirt",price:1500},
+  {x:80,y:350,name:"Rice",price:500},
+  {x:450,y:350,name:"Flash Deal",price:300}
+];
+
+/* ========== CREATE SHELVES ========== */
+const game = document.getElementById("game");
+shelves.forEach((s,i)=>{
+  const div = document.createElement("div");
+  div.className="shelf";
+  div.style.left=s.x+"px";
+  div.style.top=s.y+"px";
+  div.innerText=s.name;
+  game.appendChild(div);
+  s.el=div;
+});
+
+/* ========== PLAYER ========== */
+const player = document.getElementById("player");
+let pos = {x:100,y:100};
+let speed = 3;
+
+/* ========== INPUT ========== */
+const keys = {};
+window.addEventListener("keydown",e=>keys[e.key]=true);
+window.addEventListener("keyup",e=>keys[e.key]=false);
+
+/* ========== CART ========== */
+let cart = [];
+let paid = false;
+
+function updateCart(){
+  const cartDiv = document.getElementById("cart");
+  cartDiv.innerHTML="";
+  let total=0;
+
+  cart.forEach((item,i)=>{
+    total+=item.price;
+    cartDiv.innerHTML += `
+      ${item.name} ₹${item.price}
+      <button onclick="removeItem(${i})">x</button><br>
+    `;
+  });
+
+  document.getElementById("total").innerText=total;
+}
+
+window.removeItem = (i)=>{
+  cart.splice(i,1);
+  updateCart();
+};
+
+/* ========== POPUP ========== */
+const popup = document.getElementById("popup");
+
+/* ========== GAME LOOP ========== */
+function loop(){
+
+  let dx = 0, dy = 0;
+
+  if(keys["w"]||keys["ArrowUp"]) dy -= speed;
+  if(keys["s"]||keys["ArrowDown"]) dy += speed;
+  if(keys["a"]||keys["ArrowLeft"]) dx -= speed;
+  if(keys["d"]||keys["ArrowRight"]) dx += speed;
+
+  pos.x += dx;
+  pos.y += dy;
+
+  /* BOUNDARY */
+  pos.x = Math.max(0, Math.min(window.innerWidth-30,pos.x));
+  pos.y = Math.max(0, Math.min(window.innerHeight-30,pos.y));
+
+  player.style.left = pos.x+"px";
+  player.style.top = pos.y+"px";
+
+  checkShelves();
+  checkCounter();
+  checkExit();
+
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* ========== INTERACTION ========== */
+function distance(a,b){
+  return Math.hypot(a.x-b.x,a.y-b.y);
+}
+
+function checkShelves(){
+  let found = null;
+
+  shelves.forEach(s=>{
+    const d = distance(pos,{x:s.x,y:s.y});
+    if(d<80){
+      found=s;
+      s.el.classList.add("active");
+    } else {
+      s.el.classList.remove("active");
+    }
+  });
+
+  if(found){
+    popup.style.display="block";
+    popup.innerHTML = `
+      <b>${found.name}</b><br>
+      ₹${found.price}<br>
+      <button onclick='addToCart("${found.name}",${found.price})'>Add</button>
+    `;
+  } else {
+    popup.style.display="none";
+  }
+}
+
+window.addToCart = (name,price)=>{
+  cart.push({name,price});
+  paid=false;
+  updateCart();
+};
+
+/* ========== COUNTER ========== */
+function checkCounter(){
+  const counter = document.getElementById("counter").getBoundingClientRect();
+  const p = player.getBoundingClientRect();
+
+  if(intersect(p,counter)){
+    popup.style.display="block";
+    popup.innerHTML += `<br><button onclick="pay()">Pay Now</button>`;
+  }
+}
+
+window.pay = ()=>{
+  if(cart.length===0) return alert("Empty cart");
+  paid=true;
+  cart=[];
+  updateCart();
+  alert("Payment Done");
+};
+
+/* ========== EXIT ========== */
+function checkExit(){
+  const exit = document.getElementById("exit").getBoundingClientRect();
+  const p = player.getBoundingClientRect();
+
+  if(intersect(p,exit)){
+    if(cart.length>0 && !paid){
+      alert("Pay first!");
+    } else {
+      alert("Exited Successfully!");
+    }
+  }
+}
+
+/* ========== UTIL ========== */
+function intersect(a,b){
+  return !(a.right<b.left || a.left>b.right || a.bottom<b.top || a.top>b.bottom);
+}
+
+</script>
+
+</body>
+</html>

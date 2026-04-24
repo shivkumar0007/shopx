@@ -43,6 +43,14 @@ const AnimatedRoutes = () => {
           }
         />
         <Route
+          path="/virtual-store"
+          element={
+            <PageFade>
+              <VirtualStore />
+            </PageFade>
+          }
+        />
+        <Route
           path="/cart"
           element={
             <ProtectedRoute>
@@ -96,14 +104,7 @@ const AnimatedRoutes = () => {
             </PageFade>
           }
         />
-        <Route
-          path="/virtual-store"
-          element={
-            <PageFade>
-              <VirtualStore />
-            </PageFade>
-          }
-        />
+        
         <Route
           path="/admin"
           element={
@@ -129,11 +130,12 @@ const AnimatedRoutes = () => {
 
 const AppShell = () => {
   const location = useLocation();
-  const showGlobalAssistant = location.pathname !== "/virtual-store";
+  const isVirtualStore = location.pathname === "/virtual-store";
+  const showGlobalAssistant = !isVirtualStore;
 
   return (
     <div className="min-h-screen bg-bg transition-colors duration-300">
-      <Navbar />
+      {!isVirtualStore ? <Navbar /> : null}
       <Suspense
         fallback={
           <main className="mx-auto max-w-7xl px-8 py-8">

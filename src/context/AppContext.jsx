@@ -339,6 +339,138 @@ export const AppProvider = ({ children }) => {
     : 0;
   const totalAmount = Number(Math.max(0, discountedSubtotal - discountAmount).toFixed(2));
 
+  const startPayment = async (options = {}) => {
+    const { onSuccess, onFailure, onDismiss } = options;
+
+    if (!user?.token) {
+      toast.error("Login required before checkout.");
+      onFailure?.(new Error("Login required before checkout."));
+      return false;
+    }
+
+    if (cartItems.length === 0) {
+      toast.error("Your cart is empty.");
+      onFailure?.(new Error("Your cart is empty."));
+      return false;
+    }
+
+    if (!window.Razorpay) {
+      const sdkError = new Error("Razorpay SDK not loaded. Please refresh the page.");
+      toast.error(sdkError.message);
+      onFailure?.(sdkError);
+      return false;
+    }
+
+    const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+    if (!razorpayKey) {
+      const configError = new Error("Payment configuration error. Please contact support.");
+      toast.error(configError.message);
+      onFailure?.(configError);
+      return false;
+    }
+
+    try {
+      const headers = { Authorization: `Bearer ${user.token}` };
+      const items = cartItems.map((item) => ({
+        product: item._id,
+        quantity: item.quantity,
+        price: getDiscountedPrice(item),
+        productName: item.name,
+        productImage: item.image
+      }));
+
+      const { data: orderData } = await api.post(
+        "/payments/order",
+        {
+          amount: totalAmount,
+          currency: "INR",
+          items,
+          couponCode: activeCoupon?.code || ""
+        },
+        { headers }
+      );
+
+      // Wrap Razorpay's callback-style flow so different UI surfaces can await one shared checkout path.
+      return await new Promise((resolve) => {
+        let isSettled = false;
+
+        const finish = (result) => {
+          if (isSettled) return;
+          isSettled = true;
+          resolve(result);
+        };
+
+        const razorpay = new window.Razorpay({
+          key: razorpayKey,
+          amount: orderData.amount,
+          currency: orderData.currency,
+          name: "SHOPX AI",
+          description: "Secure Payment for your Order",
+          order_id: orderData.razorpay_order_id,
+          prefill: {
+            name: user.name || "",
+            email: user.email || ""
+          },
+          theme: {
+            color: "#6c63ff"
+          },
+          handler: async (response) => {
+            try {
+              const { data: verifyData } = await api.post("/payments/verify", response, { headers });
+
+              if (!verifyData?.success) {
+                throw new Error("Verification failed");
+              }
+
+              const verifiedOrder = verifyData.order;
+              addOrder({
+                _id: verifiedOrder?._id,
+                id: verifiedOrder?.razorpayOrderId || orderData.razorpay_order_id,
+                amount: totalAmount,
+                totalPrice: totalAmount,
+                items: verifiedOrder?.items || items,
+                status: verifiedOrder?.status || "paid",
+                orderStatus: verifiedOrder?.orderStatus || "Processing",
+                invoiceNumber: verifiedOrder?.invoiceNumber || "",
+                createdAt: verifiedOrder?.createdAt || new Date().toISOString()
+              });
+
+              clearCart();
+              toast.success("Payment Successful! Order Placed.");
+              await onSuccess?.(verifiedOrder);
+              finish(true);
+            } catch (error) {
+              console.error("Verification Error:", error);
+              toast.error("Payment verification failed. Please contact support.");
+              onFailure?.(error);
+              finish(false);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              onDismiss?.();
+              finish(false);
+            }
+          }
+        });
+
+        razorpay.on("payment.failed", (response) => {
+          const message = response?.error?.description || "Payment failed.";
+          toast.error(`Payment Failed: ${message}`);
+          onFailure?.(response);
+          finish(false);
+        });
+
+        razorpay.open();
+      });
+    } catch (error) {
+      console.error("Checkout Error:", error);
+      toast.error(error?.response?.data?.message || error.message || "Could not initiate payment");
+      onFailure?.(error);
+      return false;
+    }
+  };
+
   const applyCoupon = async (code) => {
     const normalizedCode = String(code || "").trim().toUpperCase();
     if (!normalizedCode) {
@@ -416,6 +548,7 @@ export const AppProvider = ({ children }) => {
     appliedCoupon: activeCoupon,
     applyCoupon,
     clearCoupon,
+    startPayment,
     orders,
     addOrder,
     user,

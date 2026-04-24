@@ -8,7 +8,6 @@ import { getDiscountedPrice, isFlashSaleActive } from "../utils/pricing.js";
 const Cart = () => {
   const navigate = useNavigate();
   const {
-    api,
     cartItems,
     subtotal,
     bundleDiscountAmount,
@@ -19,8 +18,7 @@ const Cart = () => {
     clearCoupon,
     updateQuantity,
     removeFromCart,
-    clearCart,
-    addOrder,
+    startPayment,
     user
   } = useApp();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -41,104 +39,13 @@ const Cart = () => {
   };
 
   const handleCheckout = async () => {
-    if (!user?.token) {
-      toast.error("Login required before checkout.");
-      return;
-    }
-    if (cartItems.length === 0) return;
-
-    if (!window.Razorpay) {
-      toast.error("Razorpay SDK not loaded. Please refresh the page.");
-      return;
-    }
-
-    // ✅ Key validation guard
-    const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
-    if (!razorpayKey) {
-      toast.error("Payment configuration error. Please contact support.");
-      return;
-    }
+    if (!user?.token || cartItems.length === 0) return;
 
     try {
       setIsProcessing(true);
-      const headers = { Authorization: `Bearer ${user.token}` };
-      
-      const items = cartItems.map((item) => ({
-        product: item._id,
-        quantity: item.quantity,
-        price: getDiscountedPrice(item),
-        productName: item.name,
-        productImage: item.image
-      }));
-
-      const { data: orderData } = await api.post(
-        "/payments/order",
-        { amount: totalAmount, currency: "INR", items, couponCode: appliedCoupon?.code || "" },
-        { headers }
-      );
-
-      const options = {
-        key: razorpayKey, // ✅ validated key use ho rahi hai
-        amount: orderData.amount,
-        currency: orderData.currency,
-        name: "SHOPX AI",
-        description: "Secure Payment for your Order",
-        order_id: orderData.razorpay_order_id,
-        prefill: {
-          name: user.name || "",
-          email: user.email || "",
-        },
-        theme: {
-          color: "#6c63ff",
-        },
-        handler: async (response) => {
-          try {
-            const { data: verifyData } = await api.post("/payments/verify", response, { headers });
-            
-            if (verifyData?.success) {
-              const verifiedOrder = verifyData.order;
-              addOrder({
-                _id: verifiedOrder?._id,
-                id: verifiedOrder?.razorpayOrderId || orderData.razorpay_order_id,
-                amount: totalAmount,
-                totalPrice: totalAmount,
-                items: verifiedOrder?.items || items,
-                status: verifiedOrder?.status || "paid",
-                orderStatus: verifiedOrder?.orderStatus || "Processing",
-                invoiceNumber: verifiedOrder?.invoiceNumber || "",
-                createdAt: verifiedOrder?.createdAt || new Date().toISOString()
-              });
-              
-              clearCoupon();
-              clearCart();
-              toast.success("Payment Successful! Order Placed.");
-              navigate("/profile");
-            } else {
-              throw new Error("Verification failed");
-            }
-          } catch (err) {
-            console.error("Verification Error:", err);
-            toast.error("Payment verification failed. Please contact support.");
-          }
-        },
-        modal: {
-          ondismiss: function() {
-            setIsProcessing(false);
-          }
-        }
-      };
-
-      const razorpay = new window.Razorpay(options);
-
-      razorpay.on("payment.failed", function (response) {
-        toast.error(`Payment Failed: ${response.error.description}`);
-        setIsProcessing(false);
+      await startPayment({
+        onSuccess: () => navigate("/profile")
       });
-
-      razorpay.open();
-    } catch (error) {
-      console.error("Checkout Error:", error);
-      toast.error(error?.response?.data?.message || "Could not initiate payment");
     } finally {
       setIsProcessing(false);
     }
@@ -148,7 +55,7 @@ const Cart = () => {
     <main className="mx-auto max-w-7xl px-8 py-8">
       <section className="rounded-2xl border border-border bg-card p-8">
         <h2 className="mb-6 text-2xl font-medium text-text">My Shopping Cart</h2>
-        
+
         {cartItems.length === 0 ? (
           <div className="rounded-2xl border border-border bg-bg px-6 py-14 text-center">
             <EmptyCartIllustration />
@@ -164,7 +71,10 @@ const Cart = () => {
           <>
             <div className="space-y-4">
               {cartItems.map((item) => (
-                <div key={item._id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-bg p-4 shadow-sm">
+                <div
+                  key={item._id}
+                  className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-bg p-4 shadow-sm"
+                >
                   <div>
                     <p className="font-medium text-text">{item.name}</p>
                     <div className="flex flex-wrap items-center gap-2 text-sm font-normal">
@@ -195,9 +105,9 @@ const Cart = () => {
                     >
                       +
                     </button>
-                    <button 
-                      type="button" 
-                      onClick={() => removeFromCart(item._id)} 
+                    <button
+                      type="button"
+                      onClick={() => removeFromCart(item._id)}
                       className="ml-4 text-sm font-medium text-red-500 hover:underline"
                     >
                       Remove

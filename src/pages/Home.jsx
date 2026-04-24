@@ -134,6 +134,14 @@ const Home = () => {
           <h1 className="max-w-3xl text-[38px] font-medium leading-tight tracking-[-1px] text-text">
             Discover AI-curated picks designed around your style and AR-ready experiences.
           </h1>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link to="/virtual-store" className="pill-button bg-accent text-white">
+              Enter Virtual Mall
+            </Link>
+            <p className="self-center text-sm text-text/65">
+              Walk through the isometric store, inspect live displays, and checkout from the billing counter.
+            </p>
+          </div>
         </section>
       )}
 
