@@ -18,6 +18,7 @@ const Login = lazy(() => import("./pages/Login.jsx"));
 const Register = lazy(() => import("./pages/Register.jsx"));
 const Admin = lazy(() => import("./pages/Admin.jsx"));
 const NotFound = lazy(() => import("./pages/NotFound.jsx"));
+const VirtualStore = lazy(() => import("./pages/VirtualStore.jsx"));
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -96,6 +97,14 @@ const AnimatedRoutes = () => {
           }
         />
         <Route
+          path="/virtual-store"
+          element={
+            <PageFade>
+              <VirtualStore />
+            </PageFade>
+          }
+        />
+        <Route
           path="/admin"
           element={
             <ProtectedRoute requireAdmin>
@@ -118,24 +127,33 @@ const AnimatedRoutes = () => {
   );
 };
 
+const AppShell = () => {
+  const location = useLocation();
+  const showGlobalAssistant = location.pathname !== "/virtual-store";
+
+  return (
+    <div className="min-h-screen bg-bg transition-colors duration-300">
+      <Navbar />
+      <Suspense
+        fallback={
+          <main className="mx-auto max-w-7xl px-8 py-8">
+            <div className="skeleton-shimmer h-28 rounded-2xl border border-border bg-card" />
+          </main>
+        }
+      >
+        <AnimatedRoutes />
+      </Suspense>
+      {showGlobalAssistant ? <VirtualAssistant /> : null}
+    </div>
+  );
+};
+
 const App = () => {
   return (
     <ThemeProvider>
       <AppProvider>
         <BrowserRouter>
-          <div className="min-h-screen bg-bg transition-colors duration-300">
-            <Navbar />
-            <Suspense
-              fallback={
-                <main className="mx-auto max-w-7xl px-8 py-8">
-                  <div className="skeleton-shimmer h-28 rounded-2xl border border-border bg-card" />
-                </main>
-              }
-            >
-              <AnimatedRoutes />
-            </Suspense>
-            <VirtualAssistant />
-          </div>
+          <AppShell />
         </BrowserRouter>
       </AppProvider>
     </ThemeProvider>

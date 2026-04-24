@@ -1,6 +1,13 @@
-import { createMediaStreamSource, bootstrapCameraKit, Transform2D } from "@snap/camera-kit";
+import {
+  createMediaStreamSource,
+  bootstrapCameraKit,
+  Transform2D,
+} from "@snap/camera-kit";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
+const MotionDiv = motion.div;
 
 const ARModal = ({ open, lensId, onClose }) => {
   const canvasRef = useRef(null);
@@ -13,6 +20,21 @@ const ARModal = ({ open, lensId, onClose }) => {
   const lensGroupId = import.meta.env.VITE_SNAP_LENS_GROUP_ID;
 
   useEffect(() => {
+    if (!open) return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!open || !resolvedLensId || !canvasRef.current) return;
 
     let cancelled = false;
@@ -22,11 +44,15 @@ const ARModal = ({ open, lensId, onClose }) => {
     const cleanupSession = async () => {
       try {
         await sessionRef.current?.pause("live");
-      } catch {}
+      } catch {
+        // Ignore session pause errors during cleanup.
+      }
 
       try {
         await sessionRef.current?.destroy();
-      } catch {}
+      } catch {
+        // Ignore session destroy errors during cleanup.
+      }
 
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -36,32 +62,32 @@ const ARModal = ({ open, lensId, onClose }) => {
     const init = async () => {
       try {
         const cameraKit = await bootstrapCameraKit({
-          apiToken: import.meta.env.VITE_SNAP_API_TOKEN
+          apiToken: import.meta.env.VITE_SNAP_API_TOKEN,
         });
 
         const session = await cameraKit.createSession({
-          liveRenderTarget: canvasRef.current
+          liveRenderTarget: canvasRef.current,
         });
 
         sessionRef.current = session;
 
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: "user" }
+          video: { facingMode: "user" },
         });
 
         streamRef.current = stream;
 
         const source = createMediaStreamSource(stream, {
           cameraType: "user",
-          transform: Transform2D.MirrorX
+          transform: Transform2D.MirrorX,
         });
 
         await session.setSource(source);
 
         const lens = await cameraKit.lensRepository.loadLens(
           resolvedLensId,
-          import.meta.env.VITE_SNAP_LENS_GROUP_ID
+          import.meta.env.VITE_SNAP_LENS_GROUP_ID,
         );
 
         if (cancelled) return;
@@ -77,15 +103,23 @@ const ARModal = ({ open, lensId, onClose }) => {
 
         if (error?.name === "NotAllowedError") {
           setStatus("denied");
-        } else if (String(error?.message || "").toLowerCase().includes("permission denied")) {
+        } else if (
+          String(error?.message || "")
+            .toLowerCase()
+            .includes("permission denied")
+        ) {
           setStatus("error");
           setErrorMessage(
-            "This lens is not accessible to the current Camera Kit app. Add the lens to the configured Lens Group, save changes in Lens Scheduler, and make sure the API token belongs to the same Camera Kit organization."
+            "This lens is not accessible to the current Camera Kit app. Add the lens to the configured Lens Group, save changes in Lens Scheduler, and make sure the API token belongs to the same Camera Kit organization.",
           );
-        } else if (String(error?.message || "").toLowerCase().includes("lens not found")) {
+        } else if (
+          String(error?.message || "")
+            .toLowerCase()
+            .includes("lens not found")
+        ) {
           setStatus("error");
           setErrorMessage(
-            `Lens ID ${resolvedLensId} is saved in the product, but Snap Camera Kit cannot find it inside Lens Group ${lensGroupId}. Add/publish this exact lens to that Lens Group in Snap Lens Manager, then try again.`
+            `Lens ID ${resolvedLensId} is saved in the product, but Snap Camera Kit cannot find it inside Lens Group ${lensGroupId}. Add/publish this exact lens to that Lens Group in Snap Lens Manager, then try again.`,
           );
         } else {
           setStatus("error");
@@ -103,7 +137,7 @@ const ARModal = ({ open, lensId, onClose }) => {
       cancelled = true;
       void cleanupSession();
     };
-  }, [open, resolvedLensId, retryNonce]);
+  }, [open, resolvedLensId, retryNonce, lensGroupId]);
 
   const handleRetry = () => {
     setStatus("idle");
@@ -111,34 +145,90 @@ const ARModal = ({ open, lensId, onClose }) => {
     setRetryNonce((prev) => prev + 1);
   };
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {open && resolvedLensId && (
-        <motion.div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-md"
+        <MotionDiv
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.5 }}
-          style={{ willChange: "opacity, transform", transform: "translateZ(0)" }}
+          transition={{ duration: 0.25 }}
           onClick={onClose}
+          style={{
+            position: "fixed",
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+            backgroundColor: "rgba(0,0,0,0.75)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+          }}
         >
-          <motion.div
-            className="w-full max-w-5xl transform-gpu rounded-2xl border border-border bg-card p-5"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            style={{ willChange: "opacity, transform", transform: "translateZ(0)" }}
-            onClick={(event) => event.stopPropagation()}
+          <MotionDiv
+            initial={{ opacity: 0, scale: 0.98, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, y: 10 }}
+            transition={{ duration: 0.25 }}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+              width: "100%",
+              maxWidth: "56rem",
+              height: "min(calc(100dvh - 2rem), 820px)",
+              overflow: "hidden",
+              borderRadius: "1.8rem",
+              border: "1px solid var(--border, #e5e7eb)",
+              backgroundColor: "var(--card, #fff)",
+            }}
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-medium text-text">Virtual Try-On</h3>
-              <button type="button" onClick={onClose} className="pill-button bg-bg text-text hover:bg-card">
+            {/* Header */}
+            <div
+              style={{
+                display: "flex",
+                flexShrink: 0,
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "0.75rem",
+                padding: "1rem 1.5rem",
+              }}
+            >
+              <div>
+                <h3 className="text-lg font-medium text-text">Virtual Try-On</h3>
+                <p className="mt-0.5 text-sm text-text/60">
+                  Camera view ab directly screen ke center me open hogi.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="pill-button shrink-0 bg-bg text-text hover:bg-card"
+              >
                 Close
               </button>
             </div>
-            <div className="relative overflow-hidden rounded-2xl border border-border bg-black">
+
+            {/* Camera area — flex-1 fills remaining height */}
+            <div
+              style={{
+                position: "relative",
+                flex: 1,
+                minHeight: 0,
+                margin: "0 1.25rem 1.25rem",
+                overflow: "hidden",
+                borderRadius: "1rem",
+                border: "1px solid var(--border, #e5e7eb)",
+                backgroundColor: "#000",
+              }}
+            >
               {status === "loading" && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card/92 backdrop-blur-sm">
                   <span className="h-7 w-7 animate-spin rounded-full border-2 border-border border-t-accent" />
@@ -148,8 +238,14 @@ const ARModal = ({ open, lensId, onClose }) => {
 
               {status === "denied" && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card/92 px-6 text-center backdrop-blur-sm">
-                  <p className="text-base font-medium text-text">Camera access is required for Virtual Try-On</p>
-                  <button type="button" onClick={handleRetry} className="pill-button bg-accent text-white">
+                  <p className="text-base font-medium text-text">
+                    Camera access is required for Virtual Try-On
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="pill-button bg-accent text-white"
+                  >
                     Try Again
                   </button>
                 </div>
@@ -160,7 +256,11 @@ const ARModal = ({ open, lensId, onClose }) => {
                   <p className="max-w-xl text-base font-medium text-text">
                     {errorMessage || "Unable to load the virtual try-on experience."}
                   </p>
-                  <button type="button" onClick={handleRetry} className="pill-button bg-accent text-white">
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="pill-button bg-accent text-white"
+                  >
                     Try Again
                   </button>
                 </div>
@@ -169,14 +269,16 @@ const ARModal = ({ open, lensId, onClose }) => {
               <canvas
                 key={`${open}-${retryNonce}`}
                 ref={canvasRef}
-                className="aspect-[9/16] max-h-[78vh] min-h-[420px] w-full md:aspect-[16/10]"
+                style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }}
               />
             </div>
-          </motion.div>
-        </motion.div>
+          </MotionDiv>
+        </MotionDiv>
       )}
     </AnimatePresence>
   );
+
+  return createPortal(modalContent, document.body);
 };
 
 export default ARModal;

@@ -372,6 +372,9 @@ const Navbar = () => {
             <NavLink to="/" className={navLinkClass}>
               Home
             </NavLink>
+            <NavLink to="/virtual-store" className={navLinkClass}>
+              Virtual Store
+            </NavLink>
             <NavLink to="/cart" className={navLinkClass}>
               Cart
             </NavLink>
