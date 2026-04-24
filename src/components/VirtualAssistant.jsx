@@ -14,6 +14,7 @@ const IDLE_PATH = "/models/Breathing Idle.fbx";
 const GREETING_PATH = "/models/Waving.fbx";
 const TALKING_PATH = "/models/Talking.fbx";
 const TRANSITION = 0.4;
+const MODEL_LOAD_TIMEOUT_MS = 8000;
 
 const initialAssistantMessage = {
   id: "assistant-welcome",
@@ -30,7 +31,35 @@ const renameClip = (fbx, name) => {
   return clip;
 };
 
-const AssistantModel = ({ isSpeaking = false, text = "", onSpeechStateChange }) => {
+const shouldUse3DAssistant = () => {
+  if (typeof window === "undefined") return false;
+
+  const supportsMatchMedia = typeof window.matchMedia === "function";
+  const smallViewport = supportsMatchMedia ? window.matchMedia("(max-width: 768px)").matches : window.innerWidth <= 768;
+  const coarsePointer = supportsMatchMedia ? window.matchMedia("(pointer: coarse)").matches : false;
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const saveData = connection?.saveData === true;
+  const deviceMemory = typeof navigator.deviceMemory === "number" ? navigator.deviceMemory : null;
+  const hardwareConcurrency = typeof navigator.hardwareConcurrency === "number" ? navigator.hardwareConcurrency : null;
+
+  try {
+    const canvas = document.createElement("canvas");
+    const hasWebGL = Boolean(canvas.getContext("webgl") || canvas.getContext("experimental-webgl"));
+
+    if (!hasWebGL) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  const constrainedDevice =
+    saveData || (deviceMemory !== null && deviceMemory <= 4) || (hardwareConcurrency !== null && hardwareConcurrency <= 4);
+
+  return !(smallViewport || coarsePointer || constrainedDevice);
+};
+
+const AssistantModel = ({ isSpeaking = false, text = "", onReady, onSpeechStateChange }) => {
   const groupRef = useRef(null);
   const actionRef = useRef(null);
   const utteranceRef = useRef(null);
@@ -55,6 +84,10 @@ const AssistantModel = ({ isSpeaking = false, text = "", onSpeechStateChange }) 
   const { actions, mixer } = useAnimations(clips, groupRef);
   const [isSynthSpeaking, setIsSynthSpeaking] = useState(false);
   const effectiveSpeaking = isSpeaking || isSynthSpeaking;
+
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
 
   useEffect(() => {
     speakingRef.current = effectiveSpeaking;
@@ -219,6 +252,79 @@ const LoadingFallback = () => (
       Loading assistant...
     </div>
   </Html>
+);
+
+const LiteAssistantStage = () => (
+  <div
+    style={{
+      position: "relative",
+      width: "100%",
+      height: "100%",
+      overflow: "hidden",
+      background:
+        "radial-gradient(circle at top, rgba(99,102,241,0.36) 0%, rgba(37,99,235,0.16) 32%, rgba(2,4,18,0.92) 72%)"
+    }}
+  >
+    <div
+      style={{
+        position: "absolute",
+        inset: "14% 18% auto",
+        height: "44%",
+        borderRadius: "999px",
+        background: "radial-gradient(circle, rgba(139,92,246,0.42) 0%, rgba(99,102,241,0.12) 55%, transparent 72%)",
+        filter: "blur(18px)"
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 14,
+        padding: "1.5rem",
+        textAlign: "center"
+      }}
+    >
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 88,
+          height: 88,
+          borderRadius: "28px",
+          color: "white",
+          fontSize: 24,
+          fontWeight: 700,
+          letterSpacing: "0.14em",
+          background: "linear-gradient(135deg, rgba(99,102,241,1) 0%, rgba(139,92,246,0.94) 100%)",
+          boxShadow: "0 18px 55px rgba(99,102,241,0.35)"
+        }}
+      >
+        AI
+      </div>
+      <div>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 11,
+            letterSpacing: "0.26em",
+            textTransform: "uppercase",
+            color: "rgba(255,255,255,0.45)"
+          }}
+        >
+          Mobile Optimized
+        </p>
+        <p style={{ margin: "8px 0 0", fontSize: 22, fontWeight: 600, color: "white" }}>ShopX Assistant</p>
+        <p style={{ margin: "10px auto 0", maxWidth: 260, fontSize: 13, lineHeight: 1.7, color: "rgba(255,255,255,0.68)" }}>
+          3D avatar is turned off on this device so the assistant opens faster and does not get stuck on loading.
+        </p>
+      </div>
+    </div>
+  </div>
 );
 
 const MessageBubble = ({ message }) => (
@@ -412,8 +518,12 @@ const VirtualAssistant = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [isSpeechPlaying, setIsSpeechPlaying] = useState(false);
   const [hasNew, setHasNew] = useState(true);
+  const [deviceSupports3D, setDeviceSupports3D] = useState(() => shouldUse3DAssistant());
+  const [forceLiteMode, setForceLiteMode] = useState(false);
+  const [avatarReady, setAvatarReady] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const renderMode = deviceSupports3D && !forceLiteMode ? "3d" : "lite";
 
   const statusLabel = isThinking ? "Thinking..." : isSpeechPlaying ? "Speaking..." : "Ready";
   const statusStyles = isThinking
@@ -439,31 +549,63 @@ const VirtualAssistant = () => {
   }, [messages, isThinking]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncAssistantMode = () => {
+      setDeviceSupports3D(shouldUse3DAssistant());
+    };
+
+    syncAssistantMode();
+    window.addEventListener("resize", syncAssistantMode);
+
+    return () => window.removeEventListener("resize", syncAssistantMode);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     const timer = window.setTimeout(() => inputRef.current?.focus(), 320);
     return () => window.clearTimeout(timer);
   }, [open]);
 
-  const toggleAssistant = useCallback(() => {
-    setOpen((wasOpen) => {
-      const nextOpen = !wasOpen;
+  useEffect(() => {
+    if (!open || renderMode !== "3d" || avatarReady) return undefined;
 
-      if (nextOpen) {
-        setHasNew(false);
-      }
+    const timer = window.setTimeout(() => {
+      setForceLiteMode(true);
+      setAvatarReady(false);
+    }, MODEL_LOAD_TIMEOUT_MS);
 
-      return nextOpen;
-    });
-  }, []);
+    return () => window.clearTimeout(timer);
+  }, [avatarReady, open, renderMode]);
 
-  const closeAssistant = useCallback(() => {
-    setOpen(false);
+  const resetAssistantPresentation = useCallback(() => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+
     setCurrentSpeechText("");
     setIsSpeechPlaying(false);
+    setForceLiteMode(false);
+    setAvatarReady(false);
   }, []);
+
+  const toggleAssistant = useCallback(() => {
+    if (open) {
+      setOpen(false);
+      resetAssistantPresentation();
+      return;
+    }
+
+    setHasNew(false);
+    setForceLiteMode(false);
+    setAvatarReady(false);
+    setOpen(true);
+  }, [open, resetAssistantPresentation]);
+
+  const closeAssistant = useCallback(() => {
+    setOpen(false);
+    resetAssistantPresentation();
+  }, [resetAssistantPresentation]);
 
   const sendMessage = useCallback(
     async (event) => {
@@ -646,40 +788,45 @@ const VirtualAssistant = () => {
                 </svg>
               </button>
 
-              <Canvas
-                shadows
-                camera={{ position: [0, 1.2, 4.2], fov: 38 }}
-                dpr={[1, 2]}
-                gl={{ antialias: true, alpha: true }}
-                style={{ width: "100%", height: "100%" }}
-              >
-                <Suspense fallback={<LoadingFallback />}>
-                  <ambientLight intensity={0.9} />
-                  <spotLight
-                    position={[4.5, 8, 5.5]}
-                    angle={0.28}
-                    penumbra={1}
-                    intensity={80}
-                    castShadow
-                    shadow-bias={-0.0001}
-                  />
-                  <directionalLight position={[-3, 5, 2]} intensity={1.2} />
-                  <AssistantModel
-                    isSpeaking={isSpeechPlaying}
-                    text={currentSpeechText}
-                    onSpeechStateChange={setIsSpeechPlaying}
-                  />
-                  <Environment preset="city" />
-                  <ContactShadows
-                    position={[0, -2.4, 0]}
-                    opacity={0.4}
-                    scale={6}
-                    blur={2.5}
-                    far={4}
-                    resolution={512}
-                  />
-                </Suspense>
-              </Canvas>
+              {renderMode === "3d" ? (
+                <Canvas
+                  shadows
+                  camera={{ position: [0, 1.2, 4.2], fov: 38 }}
+                  dpr={[1, 2]}
+                  gl={{ antialias: true, alpha: true }}
+                  style={{ width: "100%", height: "100%" }}
+                >
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ambientLight intensity={0.9} />
+                    <spotLight
+                      position={[4.5, 8, 5.5]}
+                      angle={0.28}
+                      penumbra={1}
+                      intensity={80}
+                      castShadow
+                      shadow-bias={-0.0001}
+                    />
+                    <directionalLight position={[-3, 5, 2]} intensity={1.2} />
+                    <AssistantModel
+                      isSpeaking={isSpeechPlaying}
+                      text={currentSpeechText}
+                      onReady={() => setAvatarReady(true)}
+                      onSpeechStateChange={setIsSpeechPlaying}
+                    />
+                    <Environment preset="city" />
+                    <ContactShadows
+                      position={[0, -2.4, 0]}
+                      opacity={0.4}
+                      scale={6}
+                      blur={2.5}
+                      far={4}
+                      resolution={512}
+                    />
+                  </Suspense>
+                </Canvas>
+              ) : (
+                <LiteAssistantStage />
+              )}
 
               <div
                 style={{
@@ -832,9 +979,5 @@ const VirtualAssistant = () => {
     </>
   );
 };
-
-useFBX.preload(IDLE_PATH);
-useFBX.preload(GREETING_PATH);
-useFBX.preload(TALKING_PATH);
 
 export default VirtualAssistant;
