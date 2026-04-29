@@ -8,6 +8,69 @@ import { useApp } from "../context/useApp.jsx";
 import { formatCountdown, getDiscountedPrice, getFlashSaleTimeLeft, isFlashSaleActive } from "../utils/pricing.js";
 
 const FLASH_CAROUSEL_INTERVAL = 4200;
+const PRODUCT_PAGE_SIZE = 30;
+
+const PaginationControls = ({ currentPage, onPageChange, pageSize, totalItems, totalPages }) => {
+  if (totalPages <= 1) return null;
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+  const pages = Array.from({ length: totalPages }, (_, index) => index + 1).filter((page) => {
+    if (page === 1 || page === totalPages) return true;
+    return Math.abs(page - currentPage) <= 1;
+  });
+
+  return (
+    <nav
+      className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
+      aria-label="Product pagination"
+    >
+      <p className="text-sm text-text/65">
+        Showing {startItem}-{endItem} of {totalItems} products
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="icon-pill inline-flex h-10 w-10 items-center justify-center border border-border bg-bg text-text disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Previous product page"
+        >
+          <ChevronLeft size={18} strokeWidth={2} />
+        </button>
+        {pages.map((page, index) => {
+          const previousPage = pages[index - 1];
+          const showGap = previousPage && page - previousPage > 1;
+
+          return (
+            <div key={page} className="flex items-center gap-2">
+              {showGap ? <span className="px-1 text-sm text-text/45">...</span> : null}
+              <button
+                type="button"
+                onClick={() => onPageChange(page)}
+                className={`pill-button min-w-10 px-3 ${
+                  page === currentPage ? "border-accent bg-accent text-white" : "bg-bg text-text"
+                }`}
+                aria-current={page === currentPage ? "page" : undefined}
+              >
+                {page}
+              </button>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="icon-pill inline-flex h-10 w-10 items-center justify-center border border-border bg-bg text-text disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Next product page"
+        >
+          <ChevronRight size={18} strokeWidth={2} />
+        </button>
+      </div>
+    </nav>
+  );
+};
 
 const FlashSaleCarousel = ({ products, loading, now }) => {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -292,6 +355,7 @@ const Home = () => {
   const navigate = useNavigate();
   const { products, loading, user, searchQuery, addToCart } = useApp();
   const [now, setNow] = useState(() => Date.now());
+  const [paginationState, setPaginationState] = useState({ key: "", page: 1 });
 
   useEffect(() => {
     if (!location.state?.notAuthorized) return;
@@ -321,6 +385,20 @@ const Home = () => {
     );
   }, [products, normalizedQuery]);
 
+  const productListKey = `${normalizedQuery}:${products.length}`;
+  const requestedPage = paginationState.key === productListKey ? paginationState.page : 1;
+  const totalProductPages = Math.max(1, Math.ceil(filteredProducts.length / PRODUCT_PAGE_SIZE));
+  const currentPage = Math.min(requestedPage, totalProductPages);
+
+  const handleProductPageChange = useCallback(
+    (nextPage) => {
+      const safePage = Math.min(Math.max(nextPage, 1), totalProductPages);
+      setPaginationState({ key: productListKey, page: safePage });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [productListKey, totalProductPages]
+  );
+
   const forYouProducts = useMemo(() => {
     const preferences = user?.preferences || [];
     if (!preferences.length || isSearching) return [];
@@ -332,16 +410,16 @@ const Home = () => {
     });
   }, [filteredProducts, isSearching, user?.preferences]);
 
-  const featuredProducts = useMemo(
-    () => (isSearching ? filteredProducts : filteredProducts.slice(0, 12)),
-    [filteredProducts, isSearching]
-  );
+  const visibleProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * PRODUCT_PAGE_SIZE;
+    return filteredProducts.slice(startIndex, startIndex + PRODUCT_PAGE_SIZE);
+  }, [currentPage, filteredProducts]);
 
   const flashSaleProducts = useMemo(() => {
     if (isSearching) return [];
     const activeSaleProducts = filteredProducts.filter((product) => isFlashSaleActive(product, now));
-    return (activeSaleProducts.length > 0 ? activeSaleProducts : featuredProducts).slice(0, 8);
-  }, [featuredProducts, filteredProducts, isSearching, now]);
+    return (activeSaleProducts.length > 0 ? activeSaleProducts : filteredProducts).slice(0, 8);
+  }, [filteredProducts, isSearching, now]);
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-8 py-8">
@@ -356,7 +434,7 @@ const Home = () => {
             <div>
               <h1 className="text-3xl font-medium text-text">Results for "{searchQuery.trim()}"</h1>
               <p className="mt-2 text-sm text-text/65">
-                {featuredProducts.length} matching product{featuredProducts.length === 1 ? "" : "s"} found
+                {filteredProducts.length} matching product{filteredProducts.length === 1 ? "" : "s"} found
               </p>
             </div>
             <p className="text-sm text-text/55">
@@ -400,8 +478,8 @@ const Home = () => {
               </div>
             ))}
           {!loading &&
-            featuredProducts.map((product) => <ProductCard key={product._id} product={product} now={now} />)}
-          {!loading && featuredProducts.length === 0 && (
+            visibleProducts.map((product) => <ProductCard key={product._id} product={product} now={now} />)}
+          {!loading && filteredProducts.length === 0 && (
             <div className="col-span-full rounded-2xl border border-border bg-card p-6 text-sm font-normal text-text/70">
               No products match your current search.
             </div>
@@ -424,15 +502,25 @@ const Home = () => {
                 </div>
               </div>
             ))}
-          {!loading && featuredProducts.map((product) => (
+          {!loading && visibleProducts.map((product) => (
             <SearchResultRow key={product._id} product={product} addToCart={addToCart} now={now} />
           ))}
-          {!loading && featuredProducts.length === 0 && (
+          {!loading && filteredProducts.length === 0 && (
             <div className="rounded-[1.75rem] border border-border bg-card p-6 text-sm font-normal text-text/70">
               No products match your current search. Try a broader keyword or upload a different product image.
             </div>
           )}
         </section>
+      )}
+
+      {!loading && filteredProducts.length > PRODUCT_PAGE_SIZE && (
+        <PaginationControls
+          currentPage={currentPage}
+          onPageChange={handleProductPageChange}
+          pageSize={PRODUCT_PAGE_SIZE}
+          totalItems={filteredProducts.length}
+          totalPages={totalProductPages}
+        />
       )}
     </main>
   );
