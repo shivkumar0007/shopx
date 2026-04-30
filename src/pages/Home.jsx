@@ -490,9 +490,7 @@ const Home = () => {
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-medium text-text">Recommended For You</h2>
-            <p className="text-sm font-normal text-text/70">
-              {user?.token ? "AI-curated from your recent product views" : "Best offers picked from the catalog"}
-            </p>
+            
           </div>
           {user?.token && personalizedLoading && personalizedRecommendations.length === 0 && bestOfferProducts.length === 0 ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
