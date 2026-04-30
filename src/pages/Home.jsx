@@ -512,6 +512,9 @@ const Home = () => {
           )}
         </section>
       )}
+      
+<h2 className="text-2xl font-medium text-text"> Product</h2>
+
 
       {!isSearching && (
         <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
