@@ -1,3 +1,4 @@
+/* global process */
 import Product from "../models/Product.js";
 import User from "../models/User.js";
 import { normalizeSnapLensId } from "../utils/snapLens.js";
@@ -10,6 +11,10 @@ import {
 } from "../utils/gemini.js";
 
 const RECOMMENDATION_SYSTEM_INSTRUCTION = `Act as a professional stylist. Suggest 3 complementary product categories that go perfectly with the input product. If the category is missing, infer it from the name. If the product is unique/niche, suggest universal essentials like "Gift Wrap", "Premium Warranty", or "Best-selling Accessories". Return ONLY a JSON array: [{"category": "...", "reasoning": "..."}]`;
+const CLICKED_PRODUCTS_LIMIT = 20;
+const PERSONALIZED_RECOMMENDATION_LIMIT = 5;
+const PRODUCT_RECOMMENDATION_FIELDS =
+  "name price category description image stockCount reviews tags discountPercentage isFlashSale saleEndTime";
 
 const normalizeTags = (value) => {
   if (Array.isArray(value)) {
@@ -100,6 +105,31 @@ const buildFallbackSuggestions = (product) => [
   }
 ];
 
+const buildPersonalizedSystemInstruction = (history) =>
+  `Analyzing user history: ${JSON.stringify(history)}. Prioritize products and categories the user opened many times. Suggest 5 highly relevant products from our MongoDB collection that match these categories/tags. Ensure the output is a JSON list of products. Return ONLY valid JSON.`;
+
+const buildCatalogPrompt = (catalog) =>
+  JSON.stringify({
+    catalog: catalog.map((product) => ({
+      _id: String(product._id),
+      name: product.name,
+      category: product.category,
+      tags: normalizeTags(product.tags),
+      description: product.description,
+      price: product.price,
+      averageRating: Number(getAverageRating(product).toFixed(1)),
+      stockCount: product.stockCount
+    })),
+    outputShape: [
+      {
+        _id: "MongoDB product id",
+        name: "Product name",
+        category: "Product category",
+        reason: "Short reason based on user history"
+      }
+    ]
+  });
+
 const getAverageRating = (product) => {
   const reviews = Array.isArray(product.reviews) ? product.reviews : [];
   if (reviews.length === 0) return 0;
@@ -111,6 +141,19 @@ const getBestSellerScore = (product) =>
   (Array.isArray(product.reviews) ? product.reviews.length : 0) * 8 +
   getAverageRating(product) * 6 +
   Number(product.stockCount || 0) * 0.15;
+
+const isActiveOffer = (product) =>
+  Boolean(
+    product.isFlashSale &&
+    Number(product.discountPercentage || 0) > 0 &&
+    product.saleEndTime &&
+    new Date(product.saleEndTime).getTime() > Date.now()
+  );
+
+const getOfferScore = (product) =>
+  (isActiveOffer(product) ? 80 : 0) +
+  Number(product.discountPercentage || 0) * 2 +
+  getBestSellerScore(product);
 
 const getRecommendationScore = (product, category) => {
   const normalizedCategory = normalizeText(category);
@@ -162,6 +205,150 @@ const chooseProductForSuggestion = (products, suggestion, usedIds = new Set()) =
   }
 
   return chooseBestSellerFallback(products, usedIds);
+};
+
+const getRecommendationCatalog = async () => {
+  const inStockProducts = await Product.find(
+    { stockCount: { $gt: 0 } },
+    PRODUCT_RECOMMENDATION_FIELDS
+  ).lean();
+
+  return inStockProducts.length > 0
+    ? inStockProducts
+    : await Product.find({}, PRODUCT_RECOMMENDATION_FIELDS).lean();
+};
+
+const getBestOfferProductsFromCatalog = (catalog = [], limit = PERSONALIZED_RECOMMENDATION_LIMIT) =>
+  [...catalog]
+    .sort((a, b) => getOfferScore(b) - getOfferScore(a))
+    .slice(0, limit);
+
+const buildInterestProfile = (history = []) => {
+  const categoryWeights = new Map();
+  const tagWeights = new Map();
+  const productWeights = new Map();
+
+  history.forEach((entry, index) => {
+    const recencyWeight = Math.max(1, CLICKED_PRODUCTS_LIMIT - index);
+    const productId = String(entry.productId || "");
+
+    if (productId) {
+      productWeights.set(productId, (productWeights.get(productId) || 0) + recencyWeight);
+    }
+
+    if (entry.category) {
+      const category = normalizeText(entry.category);
+      categoryWeights.set(category, (categoryWeights.get(category) || 0) + recencyWeight);
+    }
+
+    normalizeTags(entry.tags).forEach((tag) => {
+      const normalizedTag = normalizeText(tag);
+      tagWeights.set(normalizedTag, (tagWeights.get(normalizedTag) || 0) + recencyWeight);
+    });
+  });
+
+  return { categoryWeights, productWeights, tagWeights };
+};
+
+const buildInteractionHistory = (clickedProducts = []) =>
+  clickedProducts
+    .slice(0, CLICKED_PRODUCTS_LIMIT)
+    .map((entry) => ({
+      productId: String(entry.product?._id || entry.product || ""),
+      name: entry.product?.name || "",
+      category: entry.category || entry.product?.category || "",
+      tags: normalizeTags(entry.product?.tags),
+      clickedAt: entry.clickedAt
+    }))
+    .filter((entry) => entry.productId || entry.category);
+
+const getPersonalizedFallbackProducts = (
+  catalog = [],
+  history = [],
+  limit = PERSONALIZED_RECOMMENDATION_LIMIT
+) => {
+  if (history.length === 0) {
+    return getBestOfferProductsFromCatalog(catalog, limit);
+  }
+
+  const { categoryWeights, productWeights, tagWeights } = buildInterestProfile(history);
+
+  return [...catalog]
+    .map((product) => {
+      const productId = String(product._id);
+      const productTags = normalizeTags(product.tags).map((tag) => normalizeText(tag));
+      const tagScore = productTags.reduce((sum, tag) => sum + (tagWeights.get(tag) || 0), 0);
+      const categoryScore = categoryWeights.get(normalizeText(product.category)) || 0;
+      const openedScore = productWeights.get(productId) || 0;
+
+      return {
+        product,
+        score:
+          openedScore * 8 +
+          categoryScore * 5 +
+          tagScore * 3 +
+          getOfferScore(product) * 0.35
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return getOfferScore(b.product) - getOfferScore(a.product);
+    })
+    .map((entry) => entry.product)
+    .slice(0, limit);
+};
+
+const parsePersonalizedProductResponse = (rawText = "", catalog = []) => {
+  try {
+    const parsed = JSON.parse(stripMarkdownFence(rawText));
+    if (!Array.isArray(parsed)) return [];
+
+    const productById = new Map(catalog.map((product) => [String(product._id), product]));
+    const productByName = new Map(catalog.map((product) => [normalizeText(product.name), product]));
+    const usedIds = new Set();
+
+    return parsed
+      .map((item) => {
+        const candidate = item?.product && typeof item.product === "object" ? item.product : item;
+        const id = String(candidate?._id || candidate?.id || candidate?.productId || "");
+        const name = normalizeText(candidate?.name || candidate?.productName || "");
+        const product = productById.get(id) || productByName.get(name);
+
+        if (!product || usedIds.has(String(product._id))) return null;
+        usedIds.add(String(product._id));
+        return product;
+      })
+      .filter(Boolean)
+      .slice(0, PERSONALIZED_RECOMMENDATION_LIMIT);
+  } catch {
+    return [];
+  }
+};
+
+const fillRecommendationGaps = (recommendedProducts, fallbackProducts) => {
+  const usedIds = new Set(recommendedProducts.map((product) => String(product._id)));
+  const fillers = fallbackProducts.filter((product) => !usedIds.has(String(product._id)));
+
+  return [...recommendedProducts, ...fillers].slice(0, PERSONALIZED_RECOMMENDATION_LIMIT);
+};
+
+const mapSuggestionsToProducts = (catalog = [], suggestions = []) => {
+  const usedIds = new Set();
+
+  return suggestions
+    .map((suggestion) => {
+      const matchedProduct = chooseProductForSuggestion(catalog, suggestion, usedIds);
+      if (!matchedProduct) return null;
+
+      usedIds.add(String(matchedProduct._id));
+
+      return {
+        category: suggestion.category,
+        reasoning: suggestion.reasoning,
+        product: matchedProduct
+      };
+    })
+    .filter(Boolean);
 };
 
 const buildProductPayload = (body) => {
@@ -281,34 +468,110 @@ export const deleteProduct = async (req, res, next) => {
   }
 };
 
+export const trackProductClick = async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id).select("category");
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.clickedProducts = [
+      {
+        product: product._id,
+        category: product.category,
+        clickedAt: new Date()
+      },
+      ...(user.clickedProducts || [])
+    ].slice(0, CLICKED_PRODUCTS_LIMIT);
+
+    await user.save();
+
+    return res.status(201).json({
+      message: "Product interaction tracked",
+      clickedProductsCount: user.clickedProducts.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPersonalizedRecommendations = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select("clickedProducts preferences")
+      .populate("clickedProducts.product", "name category tags");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const history = buildInteractionHistory(user.clickedProducts || []);
+    const catalog = await getRecommendationCatalog();
+    const fallbackProducts = getPersonalizedFallbackProducts(
+      catalog,
+      history,
+      PERSONALIZED_RECOMMENDATION_LIMIT
+    );
+
+    if (history.length === 0) {
+      return res.json({
+        source: "best-offers",
+        recommendations: fallbackProducts
+      });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        source: "fallback",
+        recommendations: fallbackProducts
+      });
+    }
+
+    try {
+      const result = await generateContentWithRetry({
+        apiKey,
+        systemInstruction: buildPersonalizedSystemInstruction(history),
+        requestBody: {
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: buildCatalogPrompt(catalog) }]
+            }
+          ]
+        }
+      });
+
+      const aiProducts = parsePersonalizedProductResponse(result.response.text(), catalog);
+
+      return res.json({
+        source: aiProducts.length > 0 ? "personalized-ai" : "fallback",
+        recommendations: fillRecommendationGaps(aiProducts, fallbackProducts)
+      });
+    } catch {
+      return res.json({
+        source: "fallback",
+        recommendations: fallbackProducts
+      });
+    }
+  } catch (error) {
+    if (isModelNotFoundError(error)) {
+      return res.status(502).json(getModelNotFoundResponse());
+    }
+
+    if (isRetryableGeminiError(error)) {
+      return res.status(503).json(getServiceBusyResponse());
+    }
+
+    next(error);
+  }
+};
+
 export const getAIRecommendations = async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id).lean();
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ message: "GEMINI_API_KEY is not configured." });
-    }
-
-    const result = await generateContentWithRetry({
-      apiKey,
-      systemInstruction: RECOMMENDATION_SYSTEM_INSTRUCTION,
-      requestBody: {
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: buildRecommendationPrompt(product) }]
-          }
-        ]
-      }
-    });
-
-    const aiSuggestions = parseRecommendationResponse(result.response.text());
-    const suggestions =
-      aiSuggestions.length === 3 ? aiSuggestions : buildFallbackSuggestions(product);
 
     const catalog = await Product.find(
       {
@@ -317,27 +580,46 @@ export const getAIRecommendations = async (req, res, next) => {
       },
       "name price category description image stockCount reviews tags discountPercentage isFlashSale saleEndTime"
     ).lean();
+    const fallbackSuggestions = buildFallbackSuggestions(product);
+    const fallbackRecommendations = mapSuggestionsToProducts(catalog, fallbackSuggestions);
 
-    const usedIds = new Set();
-    const recommendations = suggestions
-      .map((suggestion) => {
-        const matchedProduct = chooseProductForSuggestion(catalog, suggestion, usedIds);
-        if (!matchedProduct) return null;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        productId: product._id,
+        recommendations: fallbackRecommendations
+      });
+    }
 
-        usedIds.add(String(matchedProduct._id));
+    try {
+      const result = await generateContentWithRetry({
+        apiKey,
+        systemInstruction: RECOMMENDATION_SYSTEM_INSTRUCTION,
+        requestBody: {
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: buildRecommendationPrompt(product) }]
+            }
+          ]
+        }
+      });
 
-        return {
-          category: suggestion.category,
-          reasoning: suggestion.reasoning,
-          product: matchedProduct
-        };
-      })
-      .filter(Boolean);
+      const aiSuggestions = parseRecommendationResponse(result.response.text());
+      const suggestions =
+        aiSuggestions.length === 3 ? aiSuggestions : fallbackSuggestions;
+      const recommendations = mapSuggestionsToProducts(catalog, suggestions);
 
-    return res.json({
-      productId: product._id,
-      recommendations
-    });
+      return res.json({
+        productId: product._id,
+        recommendations: recommendations.length > 0 ? recommendations : fallbackRecommendations
+      });
+    } catch {
+      return res.json({
+        productId: product._id,
+        recommendations: fallbackRecommendations
+      });
+    }
   } catch (error) {
     if (isModelNotFoundError(error)) {
       return res.status(502).json(getModelNotFoundResponse());

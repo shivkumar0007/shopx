@@ -10,6 +10,20 @@ import { formatCountdown, getDiscountedPrice, getFlashSaleTimeLeft, isFlashSaleA
 const FLASH_CAROUSEL_INTERVAL = 4200;
 const PRODUCT_PAGE_SIZE = 30;
 
+const getProductRatingScore = (product) => {
+  const reviews = Array.isArray(product.reviews) ? product.reviews : [];
+  if (reviews.length === 0) return 0;
+
+  return reviews.reduce((sum, review) => sum + Number(review?.rating || 0), 0) / reviews.length;
+};
+
+const getBestOfferScore = (product, now) =>
+  (isFlashSaleActive(product, now) ? 80 : 0) +
+  Number(product.discountPercentage || 0) * 2 +
+  getProductRatingScore(product) * 6 +
+  (Array.isArray(product.reviews) ? product.reviews.length : 0) * 8 +
+  Number(product.stockCount || 0) * 0.15;
+
 const PaginationControls = ({ currentPage, onPageChange, pageSize, totalItems, totalPages }) => {
   if (totalPages <= 1) return null;
 
@@ -353,7 +367,16 @@ const SearchResultRow = ({ product, addToCart, now }) => {
 const Home = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { products, loading, user, searchQuery, addToCart } = useApp();
+  const {
+    products,
+    loading,
+    user,
+    searchQuery,
+    addToCart,
+    personalizedRecommendations,
+    personalizedLoading,
+    fetchPersonalizedRecommendations
+  } = useApp();
   const [now, setNow] = useState(() => Date.now());
   const [paginationState, setPaginationState] = useState({ key: "", page: 1 });
 
@@ -373,6 +396,11 @@ const Home = () => {
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const isSearching = Boolean(normalizedQuery);
+
+  useEffect(() => {
+    if (isSearching || !user?.token) return;
+    fetchPersonalizedRecommendations();
+  }, [fetchPersonalizedRecommendations, isSearching, user?.token]);
 
   const filteredProducts = useMemo(() => {
     if (!normalizedQuery) return products;
@@ -410,6 +438,20 @@ const Home = () => {
     });
   }, [filteredProducts, isSearching, user?.preferences]);
 
+  const bestOfferProducts = useMemo(
+    () =>
+      [...filteredProducts]
+        .sort((a, b) => getBestOfferScore(b, now) - getBestOfferScore(a, now))
+        .slice(0, 6),
+    [filteredProducts, now]
+  );
+
+  const recommendedProducts = personalizedRecommendations.length > 0
+    ? personalizedRecommendations
+    : forYouProducts.length > 0
+      ? forYouProducts
+      : bestOfferProducts;
+
   const visibleProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * PRODUCT_PAGE_SIZE;
     return filteredProducts.slice(startIndex, startIndex + PRODUCT_PAGE_SIZE);
@@ -444,23 +486,30 @@ const Home = () => {
         </section>
       )}
 
-      {!loading && !isSearching && user?.preferences?.length > 0 && (
+      {!loading && !isSearching && recommendedProducts.length > 0 && (
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-medium text-text">For You</h2>
+            <h2 className="text-2xl font-medium text-text">Recommended For You</h2>
             <p className="text-sm font-normal text-text/70">
-              Based on preferences: {user.preferences.join(", ")}
+              {user?.token ? "AI-curated from your recent product views" : "Best offers picked from the catalog"}
             </p>
           </div>
-          {forYouProducts.length > 0 ? (
+          {user?.token && personalizedLoading && personalizedRecommendations.length === 0 && bestOfferProducts.length === 0 ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {forYouProducts.slice(0, 6).map((product) => (
-                <ProductCard key={`for-you-${product._id}`} product={product} now={now} />
+              {[1, 2, 3].map((key) => (
+                <div key={key} className="space-y-3 rounded-2xl border border-border bg-card p-5">
+                  <div className="skeleton-shimmer h-56 rounded-2xl" />
+                  <div className="skeleton-shimmer h-5 w-2/3 rounded-full" />
+                  <div className="skeleton-shimmer h-4 w-full rounded-full" />
+                  <div className="skeleton-shimmer h-4 w-3/4 rounded-full" />
+                </div>
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-border bg-card p-6 text-sm font-normal text-text/70">
-              No personalized matches yet. Try searching or update preferences.
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {recommendedProducts.slice(0, 6).map((product) => (
+                <ProductCard key={`for-you-${product._id}`} product={product} now={now} />
+              ))}
             </div>
           )}
         </section>

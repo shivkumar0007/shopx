@@ -14,7 +14,14 @@ const userSchema = new mongoose.Schema(
         quantity: { type: Number, min: 1, default: 1 }
       }
     ],
-    wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }]
+    wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
+    clickedProducts: [
+      {
+        product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+        category: { type: String, required: true, trim: true },
+        clickedAt: { type: Date, default: Date.now }
+      }
+    ]
   },
   { timestamps: true }
 );

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { API_BASE_URL } from "../config/api.js";
 import { getDiscountedPrice } from "../utils/pricing.js";
@@ -106,6 +106,8 @@ export const AppProvider = ({ children }) => {
       return [];
     }
   });
+  const [personalizedRecommendations, setPersonalizedRecommendations] = useState([]);
+  const [personalizedLoading, setPersonalizedLoading] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -159,6 +161,30 @@ export const AppProvider = ({ children }) => {
       setLoading(false);
     }
   };
+
+  const userToken = user?.token;
+
+  const fetchPersonalizedRecommendations = useCallback(async () => {
+    if (!userToken) {
+      setPersonalizedRecommendations([]);
+      return [];
+    }
+
+    setPersonalizedLoading(true);
+    try {
+      const { data } = await api.get("/products/recommend/personalized", {
+        headers: { Authorization: `Bearer ${userToken}` }
+      });
+      const recommendations = data?.recommendations || [];
+      setPersonalizedRecommendations(recommendations);
+      return recommendations;
+    } catch {
+      setPersonalizedRecommendations([]);
+      return [];
+    } finally {
+      setPersonalizedLoading(false);
+    }
+  }, [userToken]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -530,6 +556,9 @@ export const AppProvider = ({ children }) => {
     products,
     loading,
     fetchProducts,
+    personalizedRecommendations,
+    personalizedLoading,
+    fetchPersonalizedRecommendations,
     cartItems,
     addToCart,
     addBundleToCart,

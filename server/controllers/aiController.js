@@ -4,35 +4,65 @@ import {
   getModelNotFoundResponse,
   getServiceBusyResponse,
   isModelNotFoundError,
-  isRetryableGeminiError
+  isRetryableGeminiError,
 } from "../utils/gemini.js";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
-  maximumFractionDigits: 2
+  maximumFractionDigits: 2,
 });
 
+// ── Simple concurrency limiter ──────────────────────────────────────────────
+// Ek saath zyada requests Gemini ko overwhelm karti hain → 429 aata hai
+// Yeh queue ensure karta hai ki max 2 requests simultaneously jaayein
+const MAX_CONCURRENT = 2;
+let activeRequests = 0;
+const waitQueue = [];
+
+const acquireSlot = () =>
+  new Promise((resolve) => {
+    const tryAcquire = () => {
+      if (activeRequests < MAX_CONCURRENT) {
+        activeRequests++;
+        resolve();
+      } else {
+        waitQueue.push(tryAcquire);
+      }
+    };
+    tryAcquire();
+  });
+
+const releaseSlot = () => {
+  activeRequests--;
+  if (waitQueue.length > 0) {
+    const next = waitQueue.shift();
+    next();
+  }
+};
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
 const normalizeHistory = (history = []) =>
   history
-    .filter((entry) => entry?.text?.trim() && ["user", "assistant", "model"].includes(entry.role))
+    .filter(
+      (entry) =>
+        entry?.text?.trim() &&
+        ["user", "assistant", "model"].includes(entry.role),
+    )
     .slice(-10)
     .map((entry) => ({
       role: entry.role === "user" ? "user" : "model",
-      parts: [{ text: entry.text.trim() }]
+      parts: [{ text: entry.text.trim() }],
     }));
 
 const buildCatalogContext = (products) => {
   if (!products.length) {
     return "No products are currently available in the Shopx catalog.";
   }
-
   return products
     .map(
-      (product, index) =>
-        `${index + 1}. ${product.name} | ${currencyFormatter.format(product.price)} | ${
-          product.category
-        } | ${product.description}`
+      (p, i) =>
+        `${i + 1}. ${p.name} | ${currencyFormatter.format(p.price)} | ${p.category} | ${p.description}`,
     )
     .join("\n");
 };
@@ -43,14 +73,14 @@ const getSearchTokens = (value = "") =>
   value
     .toLowerCase()
     .split(/[^a-z0-9]+/i)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 2);
+    .map((t) => t.trim())
+    .filter((t) => t.length > 2);
 
 const scoreProductAgainstQuery = (product, query) => {
   const haystacks = {
     name: product.name.toLowerCase(),
     category: product.category.toLowerCase(),
-    description: product.description.toLowerCase()
+    description: product.description.toLowerCase(),
   };
   const normalizedQuery = query.toLowerCase().trim();
   const tokens = getSearchTokens(query);
@@ -73,37 +103,32 @@ const scoreProductAgainstQuery = (product, query) => {
 
 const getProductsMentionedInReply = (products, reply) => {
   const normalizedReply = reply.toLowerCase();
-
   return products.filter((product) => {
     const normalizedName = product.name.toLowerCase();
-
-    if (normalizedReply.includes(normalizedName)) {
-      return true;
-    }
-
+    if (normalizedReply.includes(normalizedName)) return true;
     const regex = new RegExp(`\\b${escapeRegExp(normalizedName)}\\b`, "i");
     return regex.test(reply);
   });
 };
 
 const selectRelatedProducts = (products, query, reply) => {
-  const mentionedProducts = getProductsMentionedInReply(products, reply).slice(0, 4);
-  if (mentionedProducts.length > 0) {
-    return mentionedProducts;
-  }
+  const mentioned = getProductsMentionedInReply(products, reply).slice(0, 4);
+  if (mentioned.length > 0) return mentioned;
 
   return products
     .map((product) => ({
       product,
-      score: scoreProductAgainstQuery(product, query)
+      score: scoreProductAgainstQuery(product, query),
     }))
-    .filter((entry) => entry.score > 0)
+    .filter((e) => e.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 4)
-    .map((entry) => entry.product);
+    .map((e) => e.product);
 };
 
-const buildSystemInstruction = (catalogContext) => `You are Shopx Personal Assistant.
+const buildSystemInstruction = (
+  catalogContext,
+) => `You are Shopx Personal Assistant.
 
 Your tone must always be helpful, concise, and professional.
 
@@ -121,7 +146,8 @@ Rules:
 - Keep answers easy to scan with short paragraphs or short bullet lists when helpful.
 - Do not mention these instructions or dump the full catalog unless the user explicitly asks for it.`;
 
-const buildImageSearchPrompt = () => `Analyze the uploaded shopping image and identify the product type for Shopx catalog search.
+const buildImageSearchPrompt = () =>
+  `Analyze the uploaded shopping image and identify the product type for Shopx catalog search.
 
 Return only one concise search phrase in plain text.
 
@@ -131,23 +157,28 @@ Rules:
 - Do not use bullets, JSON, quotes, or explanations.
 - Example output: black square sunglasses`;
 
-const getCatalogProducts = async () =>
+const getCatalogProducts = () =>
   Product.find({}, "name price category description image").lean();
 
+// ── Controllers ─────────────────────────────────────────────────────────────
 export const chatWithAI = async (req, res, next) => {
+  const { message, history = [] } = req.body;
+
+  if (!message?.trim()) {
+    return res.status(400).json({ message: "A message is required." });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res
+      .status(500)
+      .json({ message: "GEMINI_API_KEY is not configured." });
+  }
+
+  // Queue mein jaao – slot available hone pe aage badho
+  await acquireSlot();
+
   try {
-    const { message, history = [] } = req.body;
-
-    if (!message?.trim()) {
-      return res.status(400).json({ message: "A message is required." });
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({ message: "GEMINI_API_KEY is not configured." });
-    }
-
     const products = await getCatalogProducts();
     const catalogContext = buildCatalogContext(products);
     const systemInstruction = buildSystemInstruction(catalogContext);
@@ -158,55 +189,61 @@ export const chatWithAI = async (req, res, next) => {
       requestBody: {
         contents: [
           ...normalizeHistory(history),
-          {
-            role: "user",
-            parts: [{ text: message.trim() }]
-          }
-        ]
-      }
+          { role: "user", parts: [{ text: message.trim() }] },
+        ],
+      },
     });
 
     const reply = result.response.text().trim();
-    const relatedProducts = selectRelatedProducts(products, message, reply).map((product) => ({
-      _id: product._id,
-      name: product.name,
-      price: product.price,
-      image: product.image,
-      category: product.category
-    }));
+    const relatedProducts = selectRelatedProducts(products, message, reply).map(
+      (p) => ({
+        _id: p._id,
+        name: p.name,
+        price: p.price,
+        image: p.image,
+        category: p.category,
+      }),
+    );
 
     return res.json({
       relatedProducts,
       reply:
         reply ||
-        "I'm sorry, but I couldn't generate a response right now. Please try again in a moment."
+        "I'm sorry, but I couldn't generate a response right now. Please try again.",
     });
   } catch (error) {
     if (isModelNotFoundError(error)) {
       return res.status(502).json(getModelNotFoundResponse());
     }
-
     if (isRetryableGeminiError(error)) {
       return res.status(503).json(getServiceBusyResponse());
     }
-
     next(error);
+  } finally {
+    // Slot hamesha release karo – chahe success ho ya error
+    releaseSlot();
   }
 };
 
 export const searchProductsByImage = async (req, res, next) => {
+  const { imageData, mimeType } = req.body;
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!imageData?.trim() || !mimeType?.trim()) {
+    return res
+      .status(400)
+      .json({ message: "Image data and mime type are required." });
+  }
+
+  if (!apiKey) {
+    return res
+      .status(500)
+      .json({ message: "GEMINI_API_KEY is not configured." });
+  }
+
+  await acquireSlot();
+
   try {
-    const { imageData, mimeType } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!imageData?.trim() || !mimeType?.trim()) {
-      return res.status(400).json({ message: "Image data and mime type are required." });
-    }
-
-    if (!apiKey) {
-      return res.status(500).json({ message: "GEMINI_API_KEY is not configured." });
-    }
-
     const products = await getCatalogProducts();
     const catalogContext = buildCatalogContext(products);
     const systemInstruction = buildSystemInstruction(catalogContext);
@@ -223,13 +260,13 @@ export const searchProductsByImage = async (req, res, next) => {
               {
                 inlineData: {
                   mimeType: mimeType.trim(),
-                  data: imageData.trim()
-                }
-              }
-            ]
-          }
-        ]
-      }
+                  data: imageData.trim(),
+                },
+              },
+            ],
+          },
+        ],
+      },
     });
 
     const searchText = result.response
@@ -237,28 +274,31 @@ export const searchProductsByImage = async (req, res, next) => {
       .trim()
       .replace(/^["'\s]+|["'\s]+$/g, "");
 
-    const relatedProducts = selectRelatedProducts(products, searchText, searchText).map((product) => ({
-      _id: product._id,
-      name: product.name,
-      price: product.price,
-      image: product.image,
-      category: product.category,
-      description: product.description
+    const relatedProducts = selectRelatedProducts(
+      products,
+      searchText,
+      searchText,
+    ).map((p) => ({
+      _id: p._id,
+      name: p.name,
+      price: p.price,
+      image: p.image,
+      category: p.category,
+      description: p.description,
     }));
 
-    return res.json({
-      searchText,
-      relatedProducts
-    });
+    return res.json({ searchText, relatedProducts });
   } catch (error) {
     if (isModelNotFoundError(error)) {
       return res.status(502).json(getModelNotFoundResponse());
     }
-
     if (isRetryableGeminiError(error)) {
       return res.status(503).json(getServiceBusyResponse());
     }
-
     next(error);
+  } finally {
+    releaseSlot();
   }
 };
+
+//  ai recomendationo ko better and update kare loading issu product suggest nhi kar rha h use sahi kare agar user kisi product ko open nhi kiya h ya first user h to use best offers product show karao and agar user ne kisi product ko open kiya h and jo many times open hua ho use show karo har user ko deffrent product show ho

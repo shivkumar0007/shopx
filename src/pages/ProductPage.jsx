@@ -14,7 +14,7 @@ const MotionDiv = motion.div;
 
 const ProductPage = () => {
   const { id } = useParams();
-  const { products, api, addToCart, addBundleToCart } = useApp();
+  const { products, api, user, addToCart, addBundleToCart, fetchPersonalizedRecommendations } = useApp();
   const [product, setProduct] = useState(() => products.find((item) => item._id === id) || null);
   const [showAR, setShowAR] = useState(false);
   const [now, setNow] = useState(() => new Date().getTime());
@@ -68,6 +68,19 @@ const ProductPage = () => {
       ignore = true;
     };
   }, [api, product?._id]);
+
+  useEffect(() => {
+    if (!product?._id || !user?.token) return;
+
+    api
+      .post(`/products/${product._id}/click`, null, {
+        headers: { Authorization: `Bearer ${user.token}` }
+      })
+      .then(() => {
+        fetchPersonalizedRecommendations?.();
+      })
+      .catch(() => {});
+  }, [api, fetchPersonalizedRecommendations, product?._id, user?.token]);
 
   useEffect(() => {
     if (!product?.saleEndTime || !isFlashSaleActive(product)) return undefined;
