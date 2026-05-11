@@ -301,4 +301,3 @@ export const searchProductsByImage = async (req, res, next) => {
   }
 };
 
-//  ai recomendationo ko better and update kare loading issu product suggest nhi kar rha h use sahi kare agar user kisi product ko open nhi kiya h ya first user h to use best offers product show karao and agar user ne kisi product ko open kiya h and jo many times open hua ho use show karo har user ko deffrent product show ho
